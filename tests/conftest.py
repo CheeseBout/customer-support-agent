@@ -8,15 +8,18 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
+from qdrant_client import QdrantClient
 
 from support_agent.core.principal import Principal
-from support_agent.core.settings import AppConfig, Settings, load_app_config
+from support_agent.core.settings import AppConfig, RetrievalConfig, Settings, load_app_config
 from support_agent.mcp_db.adapters.sql import SqlAdapter
 from support_agent.mcp_db.mapping import SchemaMapping, load_mapping
 from support_agent.mcp_db.server import build_server
 from support_agent.mcp_db.service import BusinessService
+from support_agent.rag.index import VectorStore
 from support_agent.seed.demo import seed_sql
 from support_agent.tools.client import DomainToolClient
+from tests.fakes import FakeSparse, HashingEmbeddings
 
 ROOT = Path(__file__).resolve().parent.parent
 SECRET = b"test-secret"
@@ -82,3 +85,26 @@ async def tool_client(service: BusinessService) -> AsyncIterator[DomainToolClien
     yield box["client"]
     stop.set()
     await task
+
+
+@pytest.fixture
+def retrieval_cfg() -> RetrievalConfig:
+    # Hashing embeddings score lower than real ones; the threshold is for the fakes only.
+    return RetrievalConfig(top_k=4, score_threshold=0.25, hybrid=True)
+
+
+@pytest.fixture
+def store() -> VectorStore:
+    s = VectorStore(QdrantClient(location=":memory:"), "test_chunks")
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def embeddings() -> HashingEmbeddings:
+    return HashingEmbeddings()
+
+
+@pytest.fixture
+def sparse() -> FakeSparse:
+    return FakeSparse()
