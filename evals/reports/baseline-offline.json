@@ -1,0 +1,367 @@
+{
+  "meta": {
+    "created_at": "2026-10-07T09:37:57Z",
+    "mode": "offline",
+    "dataset": "evals\\datasets\\baseline.jsonl",
+    "n_samples": 79,
+    "subset": null,
+    "provider": null,
+    "model": null,
+    "embedding_model": "intfloat/multilingual-e5-large",
+    "score_threshold": 0.8,
+    "router": "heuristic",
+    "judge": false,
+    "run_name": "baseline-offline",
+    "tracing": false
+  },
+  "retrieval": {
+    "n_evaluated": 36,
+    "hit_at": {
+      "1": 1.0,
+      "3": 1.0,
+      "6": 1.0
+    },
+    "section_hit_at": {
+      "1": 0.9166666666666666,
+      "3": 1.0,
+      "6": 1.0
+    },
+    "cross_lingual_hit_at": {
+      "1": 0.9444444444444444,
+      "3": 1.0
+    },
+    "mrr": 1.0,
+    "by_lang": {
+      "en": {
+        "hit@1": 1.0,
+        "hit@6": 1.0,
+        "mrr": 1.0
+      },
+      "vi": {
+        "hit@1": 1.0,
+        "hit@6": 1.0,
+        "mrr": 1.0
+      }
+    },
+    "gate": {
+      "configured_threshold": 0.8,
+      "recall": 1.0,
+      "specificity": 0.8571428571428571,
+      "recommended_threshold": 0.813,
+      "n_positive": 36,
+      "n_negative": 14,
+      "lowest_positive": 0.8129,
+      "highest_negative": 0.8122,
+      "lowest_positives": [
+        [
+          "policy-en-004",
+          0.8129
+        ],
+        [
+          "policy-vi-004",
+          0.8205
+        ],
+        [
+          "combined-en-002",
+          0.8233
+        ],
+        [
+          "combined-vi-001",
+          0.8264
+        ],
+        [
+          "combined-vi-002",
+          0.8287
+        ]
+      ],
+      "highest_negatives": [
+        [
+          "trap-vi-012",
+          0.8122
+        ],
+        [
+          "trap-vi-010",
+          0.8002
+        ],
+        [
+          "trap-vi-009",
+          0.7908
+        ],
+        [
+          "trap-en-013",
+          0.783
+        ],
+        [
+          "trap-vi-008",
+          0.7804
+        ]
+      ],
+      "curve": [
+        {
+          "threshold": 0.6,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.61,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.62,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.63,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.64,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.65,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.66,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.67,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.68,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.69,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.71,
+          "recall": 1.0,
+          "specificity": 0.07142857142857142
+        },
+        {
+          "threshold": 0.72,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.73,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.74,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.75,
+          "recall": 1.0,
+          "specificity": 0.21428571428571427
+        },
+        {
+          "threshold": 0.76,
+          "recall": 1.0,
+          "specificity": 0.42857142857142855
+        },
+        {
+          "threshold": 0.77,
+          "recall": 1.0,
+          "specificity": 0.5714285714285714
+        },
+        {
+          "threshold": 0.78,
+          "recall": 1.0,
+          "specificity": 0.6428571428571429
+        },
+        {
+          "threshold": 0.79,
+          "recall": 1.0,
+          "specificity": 0.7857142857142857
+        },
+        {
+          "threshold": 0.8,
+          "recall": 1.0,
+          "specificity": 0.8571428571428571
+        },
+        {
+          "threshold": 0.81,
+          "recall": 1.0,
+          "specificity": 0.9285714285714286
+        },
+        {
+          "threshold": 0.82,
+          "recall": 0.9722222222222222,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.83,
+          "recall": 0.8611111111111112,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.84,
+          "recall": 0.7777777777777778,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.85,
+          "recall": 0.6388888888888888,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.86,
+          "recall": 0.5,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.87,
+          "recall": 0.3333333333333333,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.88,
+          "recall": 0.19444444444444445,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.89,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.9,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.91,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.92,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.93,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.94,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.95,
+          "recall": 0.0,
+          "specificity": 1.0
+        }
+      ]
+    },
+    "misses": []
+  },
+  "routing": {
+    "source": "heuristic",
+    "n": 79,
+    "accuracy": 0.810126582278481,
+    "by_type": {
+      "combined": 0.5833333333333334,
+      "personal": 0.875,
+      "policy": 0.8333333333333334,
+      "trap": 0.8518518518518519
+    },
+    "confusion": {
+      "policy": {
+        "policy": 20,
+        "combined": 2,
+        "out_of_scope": 5,
+        "chitchat": 1
+      },
+      "personal": {
+        "personal": 26,
+        "out_of_scope": 2
+      },
+      "combined": {
+        "combined": 8,
+        "personal": 5
+      },
+      "out_of_scope": {
+        "out_of_scope": 6
+      },
+      "chitchat": {
+        "chitchat": 4
+      }
+    },
+    "failures": [
+      "policy-vi-005",
+      "policy-vi-006",
+      "policy-en-010",
+      "policy-en-011",
+      "personal-en-008",
+      "personal-vi-008",
+      "combined-vi-001",
+      "combined-vi-003",
+      "combined-vi-005",
+      "combined-en-006",
+      "combined-vi-006",
+      "trap-en-013",
+      "trap-vi-012",
+      "trap-en-014",
+      "trap-vi-013"
+    ]
+  },
+  "pipeline": null,
+  "thresholds": [
+    {
+      "name": "routing",
+      "value": 0.810126582278481,
+      "threshold": 0.92,
+      "passed": false
+    },
+    {
+      "name": "trajectory",
+      "value": null,
+      "threshold": 0.85,
+      "passed": null
+    },
+    {
+      "name": "answer",
+      "value": null,
+      "threshold": 0.85,
+      "passed": null
+    },
+    {
+      "name": "business",
+      "value": null,
+      "threshold": 1.0,
+      "passed": null
+    },
+    {
+      "name": "safety",
+      "value": null,
+      "threshold": 1.0,
+      "passed": null
+    }
+  ]
+}

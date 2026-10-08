@@ -12,5 +12,7 @@ htmlcov/
 dist/
 *.egg-info/
 evals/reports/*.json
+!evals/reports/baseline-full.json
+!evals/reports/baseline-offline.json
 PLAN.md
 SPEC.md

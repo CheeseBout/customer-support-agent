@@ -1,0 +1,406 @@
+{
+  "meta": {
+    "created_at": "2026-10-07T09:54:55Z",
+    "mode": "full",
+    "dataset": "evals\\datasets\\baseline.jsonl",
+    "n_samples": 79,
+    "subset": null,
+    "provider": "gemini",
+    "model": "gemini-3.5-flash-lite",
+    "embedding_model": "intfloat/multilingual-e5-large",
+    "score_threshold": 0.8,
+    "router": "llm",
+    "judge": true,
+    "run_name": "baseline-full",
+    "tracing": true
+  },
+  "retrieval": {
+    "n_evaluated": 36,
+    "hit_at": {
+      "1": 1.0,
+      "3": 1.0,
+      "6": 1.0
+    },
+    "section_hit_at": {
+      "1": 0.9166666666666666,
+      "3": 1.0,
+      "6": 1.0
+    },
+    "cross_lingual_hit_at": {
+      "1": 0.9444444444444444,
+      "3": 1.0
+    },
+    "mrr": 1.0,
+    "by_lang": {
+      "en": {
+        "hit@1": 1.0,
+        "hit@6": 1.0,
+        "mrr": 1.0
+      },
+      "vi": {
+        "hit@1": 1.0,
+        "hit@6": 1.0,
+        "mrr": 1.0
+      }
+    },
+    "gate": {
+      "configured_threshold": 0.8,
+      "recall": 1.0,
+      "specificity": 0.8571428571428571,
+      "recommended_threshold": 0.813,
+      "n_positive": 36,
+      "n_negative": 14,
+      "lowest_positive": 0.8129,
+      "highest_negative": 0.8122,
+      "lowest_positives": [
+        [
+          "policy-en-004",
+          0.8129
+        ],
+        [
+          "policy-vi-004",
+          0.8205
+        ],
+        [
+          "combined-en-002",
+          0.8233
+        ],
+        [
+          "combined-vi-001",
+          0.8264
+        ],
+        [
+          "combined-vi-002",
+          0.8287
+        ]
+      ],
+      "highest_negatives": [
+        [
+          "trap-vi-012",
+          0.8122
+        ],
+        [
+          "trap-vi-010",
+          0.8002
+        ],
+        [
+          "trap-vi-009",
+          0.7908
+        ],
+        [
+          "trap-en-013",
+          0.783
+        ],
+        [
+          "trap-vi-008",
+          0.7804
+        ]
+      ],
+      "curve": [
+        {
+          "threshold": 0.6,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.61,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.62,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.63,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.64,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.65,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.66,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.67,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.68,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.69,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "recall": 1.0,
+          "specificity": 0.0
+        },
+        {
+          "threshold": 0.71,
+          "recall": 1.0,
+          "specificity": 0.07142857142857142
+        },
+        {
+          "threshold": 0.72,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.73,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.74,
+          "recall": 1.0,
+          "specificity": 0.14285714285714285
+        },
+        {
+          "threshold": 0.75,
+          "recall": 1.0,
+          "specificity": 0.21428571428571427
+        },
+        {
+          "threshold": 0.76,
+          "recall": 1.0,
+          "specificity": 0.42857142857142855
+        },
+        {
+          "threshold": 0.77,
+          "recall": 1.0,
+          "specificity": 0.5714285714285714
+        },
+        {
+          "threshold": 0.78,
+          "recall": 1.0,
+          "specificity": 0.6428571428571429
+        },
+        {
+          "threshold": 0.79,
+          "recall": 1.0,
+          "specificity": 0.7857142857142857
+        },
+        {
+          "threshold": 0.8,
+          "recall": 1.0,
+          "specificity": 0.8571428571428571
+        },
+        {
+          "threshold": 0.81,
+          "recall": 1.0,
+          "specificity": 0.9285714285714286
+        },
+        {
+          "threshold": 0.82,
+          "recall": 0.9722222222222222,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.83,
+          "recall": 0.8611111111111112,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.84,
+          "recall": 0.7777777777777778,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.85,
+          "recall": 0.6388888888888888,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.86,
+          "recall": 0.5,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.87,
+          "recall": 0.3333333333333333,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.88,
+          "recall": 0.19444444444444445,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.89,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.9,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.91,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.92,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.93,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.94,
+          "recall": 0.0,
+          "specificity": 1.0
+        },
+        {
+          "threshold": 0.95,
+          "recall": 0.0,
+          "specificity": 1.0
+        }
+      ]
+    },
+    "misses": []
+  },
+  "routing": null,
+  "pipeline": {
+    "n": 79,
+    "errors": [],
+    "routing": {
+      "source": "pipeline",
+      "n": 79,
+      "accuracy": 1.0,
+      "by_type": {
+        "combined": 1.0,
+        "personal": 1.0,
+        "policy": 1.0,
+        "trap": 1.0
+      },
+      "confusion": {
+        "policy": {
+          "policy": 28
+        },
+        "personal": {
+          "personal": 28
+        },
+        "combined": {
+          "combined": 13
+        },
+        "out_of_scope": {
+          "out_of_scope": 6
+        },
+        "chitchat": {
+          "chitchat": 4
+        }
+      },
+      "failures": []
+    },
+    "metrics": {
+      "routing": 1.0,
+      "trajectory": 1.0,
+      "answer": 1.0,
+      "business": 1.0,
+      "safety": 1.0,
+      "language": 1.0
+    },
+    "by_type": {
+      "combined": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      },
+      "personal": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      },
+      "policy": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      },
+      "trap": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      }
+    },
+    "by_lang": {
+      "en": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      },
+      "vi": {
+        "routing": 1.0,
+        "trajectory": 1.0,
+        "answer": 1.0,
+        "language": 1.0
+      }
+    },
+    "judged": 54,
+    "usage": {
+      "input_tokens": 101989,
+      "output_tokens": 7460
+    },
+    "latency_ms_p50": 2273.0,
+    "latency_ms_p95": 37495.0,
+    "failures": []
+  },
+  "thresholds": [
+    {
+      "name": "routing",
+      "value": 1.0,
+      "threshold": 0.92,
+      "passed": true
+    },
+    {
+      "name": "trajectory",
+      "value": 1.0,
+      "threshold": 0.85,
+      "passed": true
+    },
+    {
+      "name": "answer",
+      "value": 1.0,
+      "threshold": 0.85,
+      "passed": true
+    },
+    {
+      "name": "business",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true
+    },
+    {
+      "name": "safety",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true
+    }
+  ]
+}
