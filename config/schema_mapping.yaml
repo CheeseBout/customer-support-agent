@@ -1,0 +1,74 @@
+# Maps the agent's canonical entities to YOUR database (SPEC 8.2).
+#
+# This file matches the demo database created by `support-agent seed-demo`. To integrate with
+# your own schema, change the right-hand sides only:
+#   - a plain column name            sku: product_sku
+#   - a constant                     currency: "'VND'"
+#   - COALESCE(a, b) / CONCAT(a, b)  name: COALESCE(display_name, title)
+# Nothing else is accepted. For joins or computed columns, create a database VIEW and point
+# `table` at it. Run `support-agent validate-mapping` after every change.
+dialect: postgres
+
+entities:
+  customer:
+    table: public.customers
+    fields: {id: id, email: email, phone: phone_number, name: full_name}
+
+  order:
+    table: public.orders
+    fields:
+      id: order_code
+      customer_id: customer_id
+      status: status
+      total: grand_total
+      currency: "'VND'"
+      created_at: created_at
+      delivered_at: delivered_at
+      shipping_address: ship_address
+      payment_method: pay_method
+    status_map:                       # DB value -> canonical status
+      "DA_GIAO": delivered
+      "DANG_GIAO": shipping
+      "CHO_XU_LY": processing
+      "HUY": cancelled
+
+  order_item:
+    table: public.order_lines
+    fields: {order_id: order_code, sku: sku, product_name: name, quantity: qty, unit_price: price}
+
+  product:
+    table: public.products
+    fields:
+      sku: sku
+      name: name
+      description: description
+      category: category_name
+      price: price
+      attributes: specs_json
+      active: is_active
+
+  inventory:
+    table: public.stock
+    fields: {sku: sku, quantity: on_hand}
+
+  shipment:
+    table: public.shipments
+    fields:
+      order_id: order_code
+      carrier: carrier
+      tracking_code: tracking_no
+      status: status
+      updated_at: updated_at
+      eta: eta
+    status_map:
+      "DANG_VAN_CHUYEN": in_transit
+      "DA_GIAO": delivered
+      "CHO_LAY_HANG": pending_pickup
+
+  return_request:
+    table: public.return_requests
+    fields: {id: id, order_id: order_code, sku: sku, status: status, created_at: created_at}
+    status_map:
+      "CHO_DUYET": pending
+      "DA_DUYET": approved
+      "TU_CHOI": rejected

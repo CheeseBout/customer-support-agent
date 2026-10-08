@@ -1,0 +1,75 @@
+# MongoDB mapping for the demo data created by `support-agent seed-demo` (BUSINESS_DB_TYPE=mongodb).
+# Fields are dotted paths. `unwind` exposes an embedded array (order lines) as rows; the adapter
+# builds $match -> $unwind -> $project pipelines. BUSINESS_DB_URL must include the database
+# name, e.g. mongodb://localhost:27017/shop
+dialect: mongodb
+
+entities:
+  customer:
+    collection: customers
+    fields: {id: id, email: email, phone: phone_number, name: full_name}
+
+  order:
+    collection: orders
+    fields:
+      id: order_code
+      customer_id: customer_id
+      status: status
+      total: grand_total
+      currency: "'VND'"
+      created_at: created_at
+      delivered_at: delivered_at
+      shipping_address: ship_address
+      payment_method: pay_method
+    status_map:
+      "DA_GIAO": delivered
+      "DANG_GIAO": shipping
+      "CHO_XU_LY": processing
+      "HUY": cancelled
+
+  order_item:
+    collection: orders
+    unwind: items
+    fields:
+      order_id: order_code
+      sku: items.sku
+      product_name: items.name
+      quantity: items.qty
+      unit_price: items.price
+
+  product:
+    collection: products
+    fields:
+      sku: sku
+      name: name
+      description: description
+      category: category_name
+      price: price
+      attributes: specs
+      active: is_active
+
+  inventory:
+    collection: stock
+    fields: {sku: sku, quantity: on_hand}
+
+  shipment:
+    collection: orders
+    fields:
+      order_id: order_code
+      carrier: shipment.carrier
+      tracking_code: shipment.tracking_no
+      status: shipment.status
+      updated_at: shipment.updated_at
+      eta: shipment.eta
+    status_map:
+      "DANG_VAN_CHUYEN": in_transit
+      "DA_GIAO": delivered
+      "CHO_LAY_HANG": pending_pickup
+
+  return_request:
+    collection: return_requests
+    fields: {id: id, order_id: order_code, sku: sku, status: status, created_at: created_at}
+    status_map:
+      "CHO_DUYET": pending
+      "DA_DUYET": approved
+      "TU_CHOI": rejected
