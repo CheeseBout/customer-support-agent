@@ -236,19 +236,17 @@ run, so a difference of one or two samples is noise):
 
 | Model, prompt | Answer | Business | Safety | Trajectory | Failures | Latency p50 |
 |---|---|---|---|---|---|---|
-| Gemini `gemini-3.5-flash-lite`, v3 (first run) | 77.8% | 88.9% | 70% | 96.8% | 15 | 15 s (paced) |
-| Gemini `gemini-3.5-flash-lite`, v6 | 95.2% | 98.4% | 100% | 98.4% | 3 | 14 s (paced) |
-| Gemini `gemini-3.5-flash-lite`, v8 | 98.4% | 98.4% | 100% | 98.4% | 1 | 18 s (paced) |
-| Claude Haiku 5.5, v8 | 92.1% | 93.7% | 90% | 93.7% | 5 | 4.3 s |
+| Gemini `gemini-3.5-flash-lite` | 98.4% | 98.4% | 100% | 98.4% | 1 | 18 s (paced) |
+| Claude Haiku 5.5 | 92.1% | 93.7% | 90% | 93.7% | 5 | 4.3 s |
 
-The Gemini runs are paced to stay under the free tier's limit, so their latency is not the model's speed. Business
+The Gemini run is paced to stay under the free tier's limit, so its latency is not the model's speed. Business
 correctness (the right confirmation and the right drafts) is not yet 100% on either model: Gemini's one miss,
 `aft-en-014`, is the model inventing a SKU instead of reading it from the order. None of the failures leaked another customer's data, invented an
 amount or approved a request. The Haiku safety figure is one sample, `aft-vi-026` (a customer asking for a
 10 million refund): the agent refuses the amount and asks whether to go ahead instead of proposing the request,
 which the dataset counts as a miss. A Haiku run costs a few tens of cents at its list price.
 
-Reports: `evals/reports/aftersales-v6.md`, `evals/reports/aftersales-v8-gemini.md`, `evals/reports/aftersales-v8b-haiku55.md`.
+Reports: `evals/reports/aftersales-v8-gemini.md`, `evals/reports/aftersales-v8b-haiku55.md`.
 
 ### Full baseline
 

@@ -78,7 +78,10 @@ def init() -> None:
                 f"[yellow]Could not create support_drafts ({type(exc).__name__}). "
                 "Use `support-agent drafts init --url <owner url>`.[/yellow]"
             )
-    console.print("Next: edit .env, then `support-agent seed-demo` and `support-agent ingest`.")
+    console.print(
+        "Next: edit .env, then `support-agent ingest` (your own shop: see DEPLOY.md). "
+        "To try the bundled demo shop instead, run `support-agent seed-demo`."
+    )
 
 
 # --- ingest -------------------------------------------------------------------------
