@@ -30,8 +30,9 @@ class Tracing:
             return None
         from langfuse.langchain import CallbackHandler
 
-        context = {"trace_id": trace_id} if trace_id else None
-        return CallbackHandler(trace_context=context)  # type: ignore[arg-type]
+        # `Any`: whether langfuse is installed (an optional extra) must not change type checking.
+        context: Any = {"trace_id": trace_id} if trace_id else None
+        return CallbackHandler(trace_context=context)
 
     def score(
         self, trace_id: str | None, name: str, value: float, *, comment: str | None = None
