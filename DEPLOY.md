@@ -369,6 +369,7 @@ Issuing a token from Python (your backend), using PyJWT:
 ```python
 import time, jwt
 
+
 def customer_token(customer_id: str, secret: str) -> str:
     return jwt.encode(
         {"sub": customer_id, "role": "customer", "exp": int(time.time()) + 900},
