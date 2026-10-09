@@ -5,19 +5,30 @@ and English, single tenant. It answers shop-policy questions from your own docum
 customer's own orders through a read-only data layer, and combines both ("is my order #1234 still
 eligible for return?").
 
-Design documents: [`SPEC.md`](SPEC.md) (requirements) and [`PLAN.md`](PLAN.md) (phases).
+Where to go next:
+
+* **[DEPLOY.md](DEPLOY.md)**: set it up for your own shop (database, policies, rules, LLM), run it,
+  and integrate it with your site or app.
+* [docs/api.md](docs/api.md): the HTTP API. [docs/agent.md](docs/agent.md): how the agent works.
+  [docs/schema-mapping.md](docs/schema-mapping.md): connecting your database.
 
 ## Status
 
-| | |
+The features below are built and covered by unit tests; the integration suite (real PostgreSQL,
+MySQL and MongoDB) runs in Docker.
+
+| Area | State |
 |---|---|
-| **Phase A: RAG** (PLAN phases 0-3) | **Done.** Foundations, policy RAG, personal data over MCP, baseline evaluation. |
-| **Phase 4: agent loop** | **Done.** On the full 79-sample set with the judge the agent scores 100% on every metric and does not fall below the Phase A pipeline baseline, see [Evaluation](#evaluation). |
-| **Phase 5: requests and human confirmation** | **Built, tested, and measured on the 63-sample after-sales set** (refund, return, warranty, order drafts; confirm / edit / reject; staff review CLI). Answer 92-98% and safety 90-100% depending on the model; business correctness is 94-98%, short of the 100% target. See [After-sales results](#after-sales-results). |
-| **Phase 6: memory and workspace** | **Built and tested.** Conversation summaries, optional saved preferences, per-session files. The multi-agent split is deliberately not built: nothing shows it would beat the single agent. |
-| **Phase 7: guardrails** | **Built and tested.** Input screening, rate limit, output checks, an English and Vietnamese red-team set. Phrase-based: see [docs/agent.md](docs/agent.md). |
-| **Phase 9: HTTP API** | **Built and tested.** JWT auth, chat as JSON or SSE, sessions, requests, staff review, Docker. See [docs/api.md](docs/api.md). |
-| Phase 8: evaluation in CI | Partly done: tracing, thresholds and `--fail-under` exist; the 4-provider comparison and an automatic CI run do not. |
+| Policy Q&A and personal data lookup | Built, tested and evaluated on the bundled demo shop (see [Evaluation](#evaluation)). |
+| Agent loop | Built. On the full 79-sample set with the judge the agent scores 100% on every metric and does not fall below the fixed-pipeline baseline. |
+| Requests with human confirmation | Built, tested and measured on the 63-sample after-sales set (refund, return, warranty, order drafts; confirm / edit / reject; staff review CLI). Answer 92-98% and safety 90-100% depending on the model; business correctness is 94-98%, short of the 100% target. See [After-sales results](#after-sales-results). |
+| Memory and workspace | Built and tested. Conversation summaries, optional saved preferences, per-session files. A multi-agent split is deliberately not built: nothing shows it would beat the single agent. |
+| Guardrails | Built and tested. Input screening, rate limit, output checks, an English and Vietnamese red-team set. Phrase-based: see [docs/agent.md](docs/agent.md). |
+| HTTP API | Built and tested. JWT auth, chat as JSON or SSE, sessions, requests, staff review, Docker. See [docs/api.md](docs/api.md). |
+| Evaluation in CI | Partly. CI runs lint, type checks and the unit tests; the LLM evaluation is run by hand. Tracing, thresholds and `--fail-under` exist; a four-provider comparison does not. |
+
+All evaluation figures in this README were measured on the bundled demo shop and its sample
+documents. Measure your own shop before relying on them (see [DEPLOY.md](DEPLOY.md)).
 
 You can use the system through the HTTP API (`support-agent serve`) or the CLI, where `--user`
 stands in for the identity a JWT carries on the API.
@@ -53,6 +64,9 @@ stands in for the identity a JWT carries on the API.
   threshold calibration, optional LLM judge and Langfuse tracing.
 
 ## Quick start
+
+This runs the bundled **demo shop** so you can try the agent in minutes. To run it for your
+own shop, follow [DEPLOY.md](DEPLOY.md).
 
 Requires Python 3.12 and Docker.
 
@@ -105,7 +119,7 @@ reproducible: `1234` is returnable, `1235` is past the window, `1239` is a gift 
 | `validate-mapping` | Check the schema mapping against the live database |
 | `serve [--host] [--port]` | Run the HTTP API. Refuses to start without a valid JWT setting |
 | `check [--skip-llm]` | Verify configuration, Qdrant, database and the model's capabilities |
-| `eval [--engine agent\|pipeline] [--offline] [--subset ci] [--judge] [--fail-under] [--compare REPORT.json] [--concurrency N] [--run-timeout S]` | Evaluate and write a report. The agent is compared with the Phase A baseline; `--fail-under` also fails on a regression |
+| `eval [--engine agent\|pipeline] [--offline] [--subset ci] [--judge] [--fail-under] [--compare REPORT.json] [--concurrency N] [--run-timeout S]` | Evaluate and write a report. The agent is compared with the fixed-pipeline baseline; `--fail-under` also fails on a regression |
 
 ## Configuration
 
@@ -236,7 +250,7 @@ which the dataset counts as a miss. A Haiku run costs a few tens of cents at its
 
 Reports: `evals/reports/aftersales-v6.md`, `evals/reports/aftersales-v8-gemini.md`, `evals/reports/aftersales-v8b-haiku55.md`.
 
-### Full baseline (the figures Phase B must not regress)
+### Full baseline
 
 Full pipeline on all 79 samples with `gemini-3.5-flash-lite` as both assistant and judge
 ([`evals/reports/baseline-full.md`](evals/reports/baseline-full.md)):
@@ -276,7 +290,7 @@ named after the run (a fresh session per run), tagged `eval`, type and language,
 ## Tests
 
 ```bash
-pytest                      # ~900 unit tests, offline, no API keys
+pytest                      # ~880 unit tests, offline, no API keys
 pytest -m integration       # PostgreSQL, MySQL, MongoDB and the Postgres checkpointer, in Docker
 ruff check . && ruff format --check . && mypy src
 ```
@@ -285,23 +299,22 @@ Language models are replaced by a scripted fake in tests (one that also streams 
 to exercise marker handling), so the router, agent loop and pipeline are deterministic and free. The adapter contract tests run unchanged against SQLite, MongoDB
 (mocked) and, in the integration suite, the real PostgreSQL, MySQL and MongoDB.
 
-## Where this differs from the spec
+## Design notes
 
-| Spec | What was built | Why |
-|---|---|---|
-| Embeddings `bge-m3` or e5 via fastembed | `intfloat/multilingual-e5-large` | fastembed does not ship bge-m3. fastembed's e5 vectors are not normalised, so they are normalised here. |
-| Chunks of 400-800 tokens | 200-450 tokens | e5 truncates input at 512 tokens; longer chunks would be silently cut for the dense vector. |
-| Score threshold 0.35 | 0.80, applied per query | e5 scores are compressed (relevant 0.81-0.89, unrelated 0.70-0.81). Calibrated on the sample corpus; recalibrate for your own documents and model. |
-| FastMCP | `mcp` 2.x `MCPServer` | The 2.x SDK renamed it. |
-| Return rule in Phase 5 | Return eligibility implemented in Phase A | The `combined` route cannot conclude correctly without it. Refund amounts, warranty and drafts came in Phase 5. |
-| `run_readonly_sql` (MAY) | Not implemented | Optional and risky; domain tools cover the use cases. |
-| `uv` | `pip` + `hatchling` | `uv` was not available; nothing depends on it. |
-| `AgentState` with `plan`, `pending_actions` | `pending` (the confirmation) and `drafts_created`; no `plan` | Nothing reads a plan in the single-agent design. |
-| Router -> four specialist agents | One agent with per-route tool allow-lists | PLAN Phase 6 keeps the split only if evaluation shows a benefit over a single agent; none has been measured. |
-| Summarise after `summarize_after_tokens` | Summary in `compact`, transcript kept whole | The API shows the full conversation; only the model's view shrinks. |
-| Idempotency `session_id`-only | Customer id is part of the key too | A client-chosen session id must not let two customers share a draft. |
-| JWT, API key (MAY) for service-to-service | JWT only | An API key cannot carry a customer identity safely. |
-| Default Gemini model `gemini-2.5-flash-lite` | `gemini-3.5-flash-lite` | Google retired the old ID for new users (HTTP 404). Model IDs go stale: check yours. |
+| Choice | Why |
+|---|---|
+| Embeddings `intfloat/multilingual-e5-large` via fastembed | fastembed does not ship bge-m3. Its e5 vectors are not normalised, so they are normalised here. |
+| Chunks of 200-450 tokens | e5 truncates input at 512 tokens; longer chunks would be silently cut for the dense vector. |
+| Relevance threshold 0.80, applied per query | e5 scores are compressed (relevant 0.81-0.89, unrelated 0.70-0.81). Calibrated on the sample corpus; recalibrate for your own documents and model. |
+| `mcp` 2.x `MCPServer` | The 2.x SDK renamed FastMCP. |
+| Return eligibility is code, not prompt | The `combined` route cannot conclude correctly without it, and a model must not decide who is eligible. Refund amounts, warranty and drafts build on the same rules. |
+| No free-form SQL tool | Optional and risky; domain tools cover the use cases. |
+| `pip` + `hatchling` | `uv` was not available; nothing depends on it. |
+| One agent with per-route tool allow-lists | A split into specialist agents is worth keeping only if evaluation shows a benefit over a single agent; none has been measured. |
+| Summary kept in `compact`, transcript kept whole | The API shows the full conversation; only the model's view shrinks. |
+| Idempotency key includes the customer id | A client-chosen session id must not let two customers share a draft. |
+| JWT only for service-to-service calls | An API key cannot carry a customer identity safely. |
+| Default Gemini model `gemini-3.5-flash-lite` | Google retired the old ID (`gemini-2.5-flash-lite`) for new users (HTTP 404). Model IDs go stale: check yours. |
 
 The return window counts calendar days in the business time zone with the delivery day as day 1:
 delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
@@ -312,8 +325,8 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
   including full evaluations. OpenAI and OpenRouter are verified by construction and unit tests only; run
   `support-agent check` with your key to confirm tool calling and structured output before
   trusting them. OpenRouter free models in particular are unreliable for tool calling.
-* Langfuse tracing and scoring were verified against Langfuse Cloud for evaluation runs. The
-  interactive `ask` and `chat` paths are not traced yet (that arrives with the API).
+* Langfuse tracing and scoring were verified against Langfuse Cloud for evaluation runs. The API
+  traces every turn; the `ask` and `chat` CLI commands are not traced.
 * PostgreSQL conversation checkpoints work on Linux but not on Windows: psycopg cannot use the
   proactor event loop that the MCP subprocess needs. SQLite checkpoints work everywhere.
 * Conversation summaries are written by the same model as the answers and are only checked for
@@ -325,8 +338,10 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
 * Requests need a drafts account (`DRAFTS_DB_URL`) that may write only `support_drafts`. Create the table with `support-agent drafts init --url <owner url>`. Without it the agent explains that it cannot submit requests.
 * Approved drafts are only recorded: nothing writes to the shop's own tables. Fulfilment is staff work.
 * Scanned (image-only) PDFs are not supported; there is no OCR.
+* The shipped evaluation datasets, thresholds and results describe the demo shop only. A real
+  shop needs its own dataset and a retrieval threshold calibrated on its own documents.
 * Product search is keyword-based with accent folding over at most 1,000 candidate rows;
-  semantic product search arrives with the product advisor in Phase 5.
+  there is no semantic product search.
 * Embedded Qdrant allows one process at a time. Use `QDRANT_URL` with the compose service when
   more than one process needs the index.
 * Relative paths in `config/app.yaml` resolve against the working directory: run from the
@@ -335,6 +350,7 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
 ## Layout
 
 ```
+DEPLOY.md          set up for your own shop, run and integrate
 config/            app.yaml, schema_mapping.yaml, examples/ for MySQL, SQLite, MongoDB
 knowledge/         sample bilingual policy documents (md, docx)
 src/support_agent/
@@ -353,5 +369,6 @@ src/support_agent/
   seed/            demo data
 evals/             dataset and reports
 docs/              schema-mapping.md, agent.md, api.md
+scripts/           sql/: SELECT-only database accounts; make_sample_docx.py
 tests/             unit tests; tests/integration needs Docker
 ```

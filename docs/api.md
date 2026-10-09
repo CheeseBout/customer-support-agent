@@ -10,7 +10,7 @@ it cannot: how the pieces fit together and why.
 
 ## Authentication
 
-Your own system issues the tokens; this service only verifies them (SPEC 14.1).
+Your own system issues the tokens; this service only verifies them.
 
 | Setting | Meaning |
 |---|---|

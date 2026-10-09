@@ -1,7 +1,7 @@
 # The agent loop
 
-Phase 4 replaced the fixed Phase A pipeline with a LangGraph agent that decides for itself which
-tools to call. The Phase A pipeline is still available (`--engine pipeline`) because it is the
+The agent is a LangGraph loop that decides for itself which tools to call. The earlier fixed
+pipeline (route, retrieve, answer) is still available (`--engine pipeline`) because it is the
 baseline the agent is compared with.
 
 ## The graph
@@ -24,9 +24,9 @@ START -> prepare -> compact -> route -+- clarify / smalltalk / refuse ------+
 | `limit` | Reached when `agent.max_steps` is used up: ends with a polite message |
 | `finalize` | Strips markers, decides the outcome, runs the output guardrails, builds citations, saves workspace files, deletes scratch messages |
 
-This is the single-agent form of SPEC 11.2. Splitting it into Policy / Order / Product /
-After-sales specialists is only worth it if evaluation shows a benefit over this design (PLAN
-Phase 6); none has been measured yet, so the single agent with per-route tool lists stays.
+This is a single agent. Splitting it into Policy / Order / Product / After-sales specialists is
+only worth it if evaluation shows a benefit over this design; none has been measured yet, so
+the single agent with per-route tool lists stays.
 
 ## Rules the loop enforces
 
@@ -78,7 +78,7 @@ the conversation.
 
 ## Requests the customer confirms
 
-Refund, return, warranty and order requests go through `propose_draft` (PLAN Phase 5):
+Refund, return, warranty and order requests go through `propose_draft`:
 
 1. The model gathers facts with read tools and calls `propose_draft` once with only the type,
    order, item and reason. It cannot give an amount, a price or an identity.
