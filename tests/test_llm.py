@@ -12,14 +12,12 @@ from support_agent.llm.capabilities import CapabilityFailure, check_capabilities
 from support_agent.llm.factory import MissingCredentials, get_chat_model, get_embeddings
 from support_agent.llm.structured import extract_json, message_text, structured_invoke
 from support_agent.llm.usage import UsageTracker
-from tests.conftest import ROOT
+from tests.conftest import DEMO_APP
 from tests.fakes import ScriptedChatModel, ai_json
 
 
 def make_settings(provider: str, **kw) -> Settings:
-    return Settings(
-        _env_file=None, llm_provider=provider, app_config_path=ROOT / "config" / "app.yaml", **kw
-    )
+    return Settings(_env_file=None, llm_provider=provider, app_config_path=DEMO_APP, **kw)
 
 
 # --- provider factory (PLAN Phase 0 acceptance: switching LLM_PROVIDER selects each provider) ---

@@ -21,9 +21,9 @@ from support_agent.drafts.repository import SqlDraftRepository
 from support_agent.drafts.service import DraftService
 from support_agent.evals.dataset import Sample, check_dataset, load_dataset
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ROOT
+from tests.conftest import DEMO
 
-DATASET = ROOT / "evals" / "datasets" / "aftersales.jsonl"
+DATASET = DEMO / "evals" / "datasets" / "aftersales.jsonl"
 SAMPLES = {s.id: s for s in load_dataset(DATASET)}
 
 

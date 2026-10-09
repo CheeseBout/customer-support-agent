@@ -1,4 +1,4 @@
-"""Generate knowledge/payment-policy.vi.docx (exercises the Word loader with real headings/lists)."""
+"""Generate examples/demo-shop/knowledge/payment-policy.vi.docx (exercises the Word loader with real headings/lists)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ from pathlib import Path
 
 from docx import Document
 
-OUT = Path(__file__).resolve().parent.parent / "knowledge" / "payment-policy.vi.docx"
+OUT = (
+    Path(__file__).resolve().parent.parent
+    / "examples"
+    / "demo-shop"
+    / "knowledge"
+    / "payment-policy.vi.docx"
+)
 
 SECTIONS: list[tuple[str, list[str], str]] = [
     (

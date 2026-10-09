@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from support_agent.core.principal import Principal
 from support_agent.core.results import ErrorCode
 from support_agent.core.settings import BusinessRules
+from support_agent.drafts.events import EVENT_NAMES, event_for
 from support_agent.drafts.models import (
     ACTIVE_STATUSES,
     PAYLOAD_MODELS,
@@ -23,6 +25,8 @@ from support_agent.drafts.repository import DraftRepository, DuplicateKey
 from support_agent.rules.warranty import needs_priority_review
 
 Decision = Literal["approve", "reject"]
+
+log = logging.getLogger(__name__)
 
 
 class DraftError(Exception):
@@ -46,11 +50,24 @@ class DraftService:
         *,
         clock: Callable[[], datetime] = _utcnow,
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
+        publish: Collection[str] = (),
     ) -> None:
         self.repo = repo
         self.rules = rules
         self._clock = clock
         self._new_id = new_id
+        # Event names ("draft.approved", ...) to queue for the shop webhook. Empty: none.
+        self.publish = frozenset(publish)
+
+    async def _announce(self, draft: Draft) -> None:
+        """Queue the event for the draft status it has now. The decision is already saved, so
+        a failure here is logged and repaired later by the dispatcher (`reconcile`)."""
+        if EVENT_NAMES[draft.status] not in self.publish:
+            return
+        try:
+            await self.repo.enqueue_event(event_for(draft, self._clock()))
+        except Exception:
+            log.exception("could not queue the %s event of draft %s", draft.status, draft.id)
 
     # --- customer side ---------------------------------------------------------------
     async def create(
@@ -105,6 +122,7 @@ class DraftService:
             if winner is not None:
                 return winner, False
             raise
+        await self._announce(draft)
         return draft, True
 
     async def list_for(
@@ -188,4 +206,5 @@ class DraftService:
         )
         if moved is None:  # someone else changed it between our read and our write
             raise DraftError("CONFLICT", "The draft was changed by someone else; reload and retry.")
+        await self._announce(moved)
         return moved

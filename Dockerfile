@@ -10,6 +10,7 @@ RUN pip install .
 
 COPY config ./config
 COPY knowledge ./knowledge
+COPY examples ./examples
 
 # Models, the vector index, conversations and sessions live here: mount a volume on /app/data.
 RUN useradd --create-home app && mkdir -p /app/data && chown -R app /app/data

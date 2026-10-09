@@ -14,6 +14,7 @@ ErrorCode = Literal[
     "NOT_ELIGIBLE",
     "OUT_OF_STOCK",
     "LIMIT_EXCEEDED",
+    "NOT_SUPPORTED",  # this shop's data does not cover the question (entity not mapped)
     "UPSTREAM_ERROR",
     "TIMEOUT",
 ]

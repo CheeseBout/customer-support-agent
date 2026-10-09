@@ -9,6 +9,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field
 
 from support_agent.core.principal import Principal
+from support_agent.core.reasons import ReasonCode
 from support_agent.core.results import ToolResult
 from support_agent.mcp_db.service import ProductFilters
 from support_agent.tools.client import DomainToolClient
@@ -23,7 +24,13 @@ class GetOrderArgs(ToolArgs):
 
 
 class ListOrdersArgs(ToolArgs):
-    status: str | None = Field(default=None, description="processing|shipping|delivered|cancelled")
+    status: str | None = Field(
+        default=None,
+        description=(
+            "pending_payment|processing|shipping|partially_shipped|delivered|cancelled|returned|"
+            "refunded|on_hold"
+        ),
+    )
     limit: int = Field(default=5, ge=1, le=10)
 
 
@@ -45,6 +52,11 @@ class SearchProductsArgs(ToolArgs):
 class ReturnEligibilityArgs(ToolArgs):
     order_id: str
     sku: str | None = None
+    reason: ReasonCode | None = Field(
+        default=None,
+        description="Why the customer wants to return it, only once they have said "
+        "(defective|wrong_item|not_as_described|damaged_in_transit|changed_mind|other)",
+    )
 
 
 class WarrantyArgs(ToolArgs):
@@ -64,7 +76,9 @@ class OrderItemArgs(ToolArgs):
 class PrepareOrderArgs(ToolArgs):
     items: list[OrderItemArgs] = Field(min_length=1, max_length=20)
     shipping_address: str = Field(description="Full delivery address")
-    payment_method: str = Field(description="cod, bank_transfer, card, momo, zalopay or vnpay")
+    payment_method: str = Field(
+        description="One of the shop's payment methods, e.g. cod or card (see place-order skill)"
+    )
 
 
 TOOL_SPECS: list[tuple[str, str, type[BaseModel]]] = [

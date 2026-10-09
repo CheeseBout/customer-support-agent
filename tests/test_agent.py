@@ -22,7 +22,7 @@ from support_agent.rag.index import VectorStore
 from support_agent.rag.ingest import ingest
 from support_agent.rag.retriever import Retriever
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ALICE, BOB, ROOT
+from tests.conftest import ALICE, BOB, DEMO
 from tests.fakes import AgentFakeLLM, FakeSparse, HashingEmbeddings
 
 RETURN_Q = "How many days do I have to return an item within delivery?"
@@ -40,7 +40,7 @@ def fast_config(app_config: AppConfig) -> AppConfig:
 def retriever(store: VectorStore) -> Retriever:
     cfg = RetrievalConfig(top_k=4, score_threshold=0.25)
     ingest(
-        ROOT / "knowledge", store=store, embeddings=HashingEmbeddings(), sparse=FakeSparse(),
+        DEMO / "knowledge", store=store, embeddings=HashingEmbeddings(), sparse=FakeSparse(),
         embedding_model="fake", cfg=cfg,
     )  # fmt: skip
     return Retriever(store, HashingEmbeddings(), cfg, FakeSparse())
@@ -114,7 +114,7 @@ async def test_policy_question_streams_events_in_order_and_cites_a_source(make_a
     )  # markers never shown
     assert result["outcome"] == "answered" and result["tool_calls"] == ["search_policy"]
     assert result["citations"] and result["citations"][0]["source"].endswith(".md")
-    assert result["retrieved"] and result["steps"] == 2 and result["prompt_version"] == "v8"
+    assert result["retrieved"] and result["steps"] == 2 and result["prompt_version"] == "v9"
     assert sum(1 for e in events if e.kind == "citation") == len(result["citations"])
 
 

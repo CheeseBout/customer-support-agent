@@ -40,7 +40,17 @@ from support_agent.mcp_db.mapping import (
     parse_expression,
 )
 
-_NUMERIC_FIELDS = {"total", "price", "unit_price", "quantity"}
+_NUMERIC_FIELDS = {
+    "total",
+    "price",
+    "unit_price",
+    "quantity",
+    "subtotal",
+    "shipping_fee",
+    "discount",
+    "tax",
+    "refunded_amount",
+}
 _DATE_FIELDS = {"created_at", "delivered_at", "updated_at", "eta"}
 
 
@@ -160,14 +170,15 @@ class SqlAdapter(DataAdapter):
         stmt = stmt.order_by(self._where("order", "created_at").desc())
         return self._norm("order", await self._fetch(stmt, min(limit, self.max_rows)))
 
-    async def get_shipment(self, order_id: str) -> Row | None:
+    async def get_shipments(self, order_id: str) -> list[Row]:
+        if not self.mapping.has("shipment"):
+            return []
         stmt = self._select("shipment").where(
             _as_text(self._where("shipment", "order_id")) == str(order_id)
         )
         if "updated_at" in self._exprs["shipment"]:
             stmt = stmt.order_by(self._where("shipment", "updated_at").desc())
-        rows = self._norm("shipment", await self._fetch(stmt))
-        return rows[0] if rows else None
+        return self._norm("shipment", await self._fetch(stmt))
 
     async def get_return_requests(self, order_id: str) -> list[Row]:
         if not self.mapping.has("return_request"):
@@ -179,7 +190,7 @@ class SqlAdapter(DataAdapter):
 
     # --- catalogue -------------------------------------------------------------------
     async def get_products(self, skus: list[str]) -> dict[str, Row]:
-        if not skus:
+        if not skus or not self.mapping.has("product"):
             return {}
         stmt = self._select("product").where(
             _as_text(self._where("product", "sku")).in_([str(s) for s in skus])
@@ -194,6 +205,8 @@ class SqlAdapter(DataAdapter):
         max_price: float | None,
         candidate_cap: int,
     ) -> list[Row]:
+        if not self.mapping.has("product"):
+            return []
         stmt = self._select("product")
         exprs = self._exprs["product"]
         if category and "category" in exprs:
@@ -206,7 +219,7 @@ class SqlAdapter(DataAdapter):
         return self._norm("product", rows)
 
     async def get_inventory(self, skus: list[str]) -> dict[str, int]:
-        if not skus:
+        if not skus or not self.mapping.has("inventory"):
             return {}
         stmt = self._select("inventory").where(
             _as_text(self._where("inventory", "sku")).in_([str(s) for s in skus])

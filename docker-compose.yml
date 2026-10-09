@@ -7,6 +7,7 @@
 # demo-mongo), not localhost: set BUSINESS_DB_URL / DRAFTS_DB_URL in .env accordingly.
 # First run:  docker compose up -d && docker compose exec api support-agent ingest
 #             then `support-agent seed-demo --url <owner url>` from the host or the container.
+#             For the demo shop set APP_CONFIG_PATH=./examples/demo-shop/app.yaml in .env first.
 services:
   api:
     build: .

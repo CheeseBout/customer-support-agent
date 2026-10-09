@@ -31,7 +31,7 @@ from support_agent.rag.ingest import ingest
 from support_agent.rag.pipeline import RagAnswer, SupportRAG
 from support_agent.rag.retriever import Retriever
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ROOT
+from tests.conftest import DEMO, DEMO_APP
 from tests.fakes import (
     FakeSparse,
     HashingEmbeddings,
@@ -40,7 +40,7 @@ from tests.fakes import (
     ai_json,
 )
 
-DATASET = ROOT / "evals" / "datasets" / "baseline.jsonl"
+DATASET = DEMO / "evals" / "datasets" / "baseline.jsonl"
 
 
 # --- the shipped dataset -------------------------------------------------------------------------
@@ -211,7 +211,7 @@ def test_percentile():
 def indexed_retriever(store: VectorStore) -> Retriever:
     cfg = RetrievalConfig(top_k=6, score_threshold=0.25)
     ingest(
-        ROOT / "knowledge",
+        DEMO / "knowledge",
         store=store,
         embeddings=HashingEmbeddings(),
         sparse=FakeSparse(),
@@ -514,7 +514,7 @@ def test_tracing_enabled_by_keys_builds_a_real_handler(monkeypatch):
     from support_agent.core.settings import Settings
 
     s = Settings(
-        _env_file=None, app_config_path=ROOT / "config" / "app.yaml",
+        _env_file=None, app_config_path=DEMO_APP,
         langfuse_public_key="pk-lf-test", langfuse_secret_key="sk-lf-test", langfuse_host="http://localhost:9",
     )  # fmt: skip
     tracing = create_tracing(s)

@@ -60,6 +60,13 @@ class DomainToolClient:
         await self._stack.aclose()
         self._client = None
 
+    async def tool_names(self) -> frozenset[str]:
+        """The tools this shop's server offers: those whose data is mapped and not disabled."""
+        if self._client is None:
+            raise RuntimeError("DomainToolClient is not connected; use `async with`")
+        listed = await self._client.list_tools()
+        return frozenset(t.name for t in listed.tools)
+
     async def call(self, tool: str, args: dict[str, Any], principal: Principal) -> ToolResult:
         if self._client is None:
             raise RuntimeError("DomainToolClient is not connected; use `async with`")

@@ -9,8 +9,8 @@ import yaml
 from typer.testing import CliRunner
 
 from support_agent.cli import app
-from support_agent.core.settings import reset_settings_cache
-from tests.conftest import ROOT
+from support_agent.core.settings import _read_app_yaml, reset_settings_cache
+from tests.conftest import DEMO, DEMO_APP, ROOT
 from tests.fakes import AgentFakeLLM, FakeSparse, HashingEmbeddings, SupportFakeLLM
 
 runner = CliRunner()
@@ -19,11 +19,11 @@ runner = CliRunner()
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A throwaway deployment: SQLite shop DB, embedded Qdrant, SQLite mapping, fake models."""
-    cfg = yaml.safe_load((ROOT / "config" / "app.yaml").read_text(encoding="utf-8"))
-    cfg["mapping"] = {"path": str(ROOT / "config" / "examples" / "schema_mapping.sqlite.yaml")}
+    cfg = _read_app_yaml(DEMO_APP)  # the shared defaults plus the demo shop's own rules
+    cfg["mapping"] = {"path": str(DEMO / "config" / "schema_mapping.sqlite.yaml")}
     cfg["retrieval"]["score_threshold"] = 0.25
-    cfg["knowledge"] = {"dir": str(ROOT / "knowledge")}
-    cfg["evals"]["dataset"] = str(ROOT / "evals" / "datasets" / "baseline.jsonl")
+    cfg["knowledge"] = {"dir": str(DEMO / "knowledge")}
+    cfg["evals"]["dataset"] = str(DEMO / "evals" / "datasets" / "baseline.jsonl")
     cfg["evals"]["report_dir"] = str(tmp_path / "evals" / "reports")
     app_yaml = tmp_path / "app.yaml"
     app_yaml.write_text(yaml.safe_dump(cfg, allow_unicode=True), encoding="utf-8")
@@ -292,7 +292,7 @@ def test_eval_with_the_agent_engine_compares_against_the_baseline(
     env: Path, monkeypatch: pytest.MonkeyPatch
 ):
     invoke("ingest")
-    baseline = ROOT / "evals" / "reports" / "baseline-full.json"
+    baseline = DEMO / "evals" / "reports" / "baseline-full.json"
     reports = env / "evals" / "reports"
     reports.mkdir(parents=True)
     (reports / "baseline-full.json").write_text(
@@ -302,7 +302,7 @@ def test_eval_with_the_agent_engine_compares_against_the_baseline(
 
     result = invoke("eval", "--limit", "4")
     md = (reports / "agent-partial.md").read_text(encoding="utf-8")
-    assert "Engine | agent (prompt v8)" in md
+    assert "Engine | agent (prompt v9)" in md
     assert "Comparison with `baseline-full`" in md
     payload = json.loads((reports / "agent-partial.json").read_text(encoding="utf-8"))
     assert (
@@ -342,7 +342,7 @@ def test_rescore_regrades_a_saved_run_without_calling_any_model(
 def test_rescore_rejects_a_missing_report_and_one_without_records(env: Path):
     missing = runner.invoke(app, ["eval", "--rescore", str(env / "nope.json")])
     assert missing.exit_code == 1 and "not found" in missing.output
-    old = ROOT / "evals" / "reports" / "baseline-offline.json"  # an offline report has no records
+    old = DEMO / "evals" / "reports" / "baseline-offline.json"  # an offline report has no records
     result = runner.invoke(app, ["eval", "--rescore", str(old)])
     assert result.exit_code == 1 and "no per-question records" in result.output
 
@@ -405,3 +405,84 @@ def test_serve_starts_uvicorn_with_the_app(env: Path, monkeypatch: pytest.Monkey
     assert result.exit_code == 0
     assert started["host"] == "0.0.0.0" and started["port"] == 9100
     assert started["app"].title == "Customer Support Agent"  # type: ignore[attr-defined]
+
+
+# --- calibrate -------------------------------------------------------------------------------------------------
+
+
+def test_calibrate_reports_a_threshold_for_the_demo_documents(env: Path):
+    invoke("ingest")
+    result = invoke("calibrate", str(DEMO / "evals" / "calibration.yaml"))
+    assert "Recommended threshold" in result.output and "score_threshold:" in result.output
+
+
+def test_calibrate_needs_an_index(env: Path):
+    result = runner.invoke(app, ["calibrate", str(DEMO / "evals" / "calibration.yaml")])
+    assert result.exit_code == 1 and "ingest" in result.output
+
+
+def test_calibrate_reports_a_missing_questions_file(env: Path):
+    result = runner.invoke(app, ["calibrate", str(env / "nope.yaml")])
+    assert result.exit_code == 1 and "not found" in result.output
+
+
+# --- introspect-db -------------------------------------------------------------------------------------------------------
+
+
+def test_introspect_db_prints_a_draft_and_what_it_found(env: Path):
+    invoke("seed-demo")
+    result = invoke("introspect-db")
+    assert "table: order_lines" in result.output and "dialect: sqlite" in result.output
+    assert "validate-mapping" in result.output and "--write" in result.output
+
+
+def test_introspect_db_writes_a_draft_the_validator_accepts(env: Path):
+    invoke("seed-demo")
+    target = env / "config" / "draft.yaml"
+    result = invoke("introspect-db", "--write", str(target))
+    assert target.exists() and "Draft written" in result.output
+    from support_agent.mcp_db.mapping import load_mapping
+
+    assert set(load_mapping(target).entities) >= {"customer", "order", "order_item", "shipment"}
+    monkey_cfg = yaml.safe_load((env / "app.yaml").read_text(encoding="utf-8"))
+    monkey_cfg["mapping"] = {"path": str(target)}
+    (env / "app.yaml").write_text(yaml.safe_dump(monkey_cfg, allow_unicode=True), encoding="utf-8")
+    reset_settings_cache()
+    assert "Mapping OK" in invoke("validate-mapping").output
+
+
+def test_introspect_db_does_not_overwrite_an_edited_file_without_force(env: Path):
+    invoke("seed-demo")
+    target = env / "mine.yaml"
+    target.write_text("dialect: sqlite\nentities: {}\n", encoding="utf-8")
+    refused = runner.invoke(app, ["introspect-db", "--write", str(target)])
+    assert refused.exit_code == 1 and "--force" in refused.output
+    assert target.read_text(encoding="utf-8").startswith("dialect: sqlite\nentities: {}")
+    invoke("introspect-db", "--write", str(target), "--force")
+    assert "order_lines" in target.read_text(encoding="utf-8")
+
+
+def test_introspect_db_replaces_the_untouched_template_without_force(env: Path):
+    invoke("seed-demo")
+    target = env / "schema_mapping.yaml"
+    shutil.copy(ROOT / "config" / "schema_mapping.yaml", target)
+    invoke("introspect-db", "--write", str(target))
+    assert "order_lines" in target.read_text(encoding="utf-8")
+
+
+def test_introspect_db_needs_a_database_url(env: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("BUSINESS_DB_URL")
+    reset_settings_cache()
+    result = runner.invoke(app, ["introspect-db"])
+    assert result.exit_code == 1 and "BUSINESS_DB_URL" in result.output
+
+
+def test_introspect_db_reports_an_unreachable_database_without_a_traceback(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv(
+        "BUSINESS_DB_URL", "sqlite+aiosqlite:///" + (env / "no" / "such.db").as_posix()
+    )
+    reset_settings_cache()
+    result = runner.invoke(app, ["introspect-db"])
+    assert result.exit_code == 1 and "Could not read the database" in result.output

@@ -10,6 +10,9 @@ import yaml
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from support_agent.core.capabilities import REQUEST_TYPES, TOOL_NEEDS, RequestType
+from support_agent.core.reasons import ReasonCode
+
 Provider = Literal["openai", "anthropic", "gemini", "openrouter"]
 EmbeddingProvider = Literal["local", "openai", "gemini"]
 DbType = Literal["postgres", "mysql", "mongodb", "sqlite"]
@@ -87,16 +90,33 @@ class DbConfig(BaseModel):
     query_timeout_seconds: float = 5
 
 
+class ReturnWindow(BaseModel):
+    """A return window that applies only to some items or some reasons.
+
+    An entry matches an item when its `categories` (if any) include the item's category and its
+    `reasons` (if any) include the customer's reason. Empty means "any".
+    """
+
+    model_config = {"extra": "forbid"}
+
+    days: int = Field(ge=0)
+    reasons: list[ReasonCode] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
+
+
 class ReturnRule(BaseModel):
-    window_days: int = 7
+    window_days: int = 7  # the window when no entry of `windows` matches
     window_basis: Literal["delivered_at", "created_at"] = "delivered_at"
     allowed_order_statuses: list[str] = Field(default_factory=lambda: ["delivered"])
     excluded_categories: list[str] = Field(default_factory=list)
+    # Longer or shorter windows for some categories or reasons, for example 30 days for a faulty
+    # item and 7 for a change of mind. The first entry that matches an item wins.
+    windows: list[ReturnWindow] = Field(default_factory=list)
 
 
 class RefundRule(BaseModel):
-    auto_review_max_amount: int = 500_000
-    currency: str = "VND"
+    auto_review_max_amount: int | float = 500_000
+    currency: str = "VND"  # follows business_rules.currency unless set here
 
 
 class WarrantyRule(BaseModel):
@@ -112,26 +132,31 @@ class InventoryRule(BaseModel):
 class OrderRule(BaseModel):
     """Limits on orders the agent may prepare (SPEC 9.3)."""
 
-    currency: str = "VND"
+    currency: str = "VND"  # follows business_rules.currency unless set here
     max_quantity_per_line: int = 20
     max_lines: int = 10
-    payment_methods: list[str] = Field(
-        default_factory=lambda: ["cod", "bank_transfer", "card", "momo", "zalopay", "vnpay"]
-    )
-    cod_max_total: int | None = (
-        5_000_000  # cash on delivery is capped (payment policy); null = no cap
-    )
+    payment_methods: list[str] = Field(default_factory=lambda: ["cod", "bank_transfer", "card"])
+    cod_max_total: int | float | None = None  # cash on delivery cap (shop currency); null = no cap
 
 
 class BusinessRules(BaseModel):
     model_config = {"populate_by_name": True}
 
     timezone: str = "Asia/Ho_Chi_Minh"
+    # The shop's ISO currency. `refund` and `order` use it unless they set their own.
+    currency: str = "VND"
     return_: ReturnRule = Field(default_factory=ReturnRule, alias="return")
-    refund: RefundRule = RefundRule()
+    refund: RefundRule = Field(default_factory=RefundRule)
     warranty: WarrantyRule = WarrantyRule()
     inventory: InventoryRule = InventoryRule()
-    order: OrderRule = OrderRule()
+    order: OrderRule = Field(default_factory=OrderRule)
+
+    @model_validator(mode="after")
+    def _share_currency(self) -> BusinessRules:
+        for section in (self.refund, self.order):
+            if "currency" not in section.model_fields_set:
+                section.currency = self.currency
+        return self
 
 
 class GuardrailsConfig(BaseModel):
@@ -165,9 +190,77 @@ class EvalsConfig(BaseModel):
     concurrency: int = 1
 
 
+class ShopContact(BaseModel):
+    """How a customer reaches a person. Shown to the model, which must not invent others."""
+
+    email: str = ""
+    phone: str = ""
+    hours: str = ""  # e.g. "Mon-Sat 8:00-20:00"
+    url: str = ""  # a help page or contact form
+
+
+class ShopConfig(BaseModel):
+    """Who the agent speaks for."""
+
+    name: str = ""
+    description: str = ""  # e.g. "an online store for phones and laptops"
+    contact: ShopContact = Field(default_factory=ShopContact)
+
+
+class CapabilitiesConfig(BaseModel):
+    """What the assistant may do. Tools whose data is not mapped switch themselves off; these
+    settings switch off more."""
+
+    model_config = {"extra": "forbid"}
+
+    disabled_tools: list[str] = Field(default_factory=list)
+    # Kinds of request the assistant may prepare for a customer to confirm.
+    request_types: list[RequestType] = Field(default_factory=lambda: list(REQUEST_TYPES))
+
+    @model_validator(mode="after")
+    def _known_tools(self) -> CapabilitiesConfig:
+        unknown = sorted(set(self.disabled_tools) - set(TOOL_NEEDS))
+        if unknown:
+            raise ValueError(
+                f"disabled_tools names unknown tools {unknown}; known: {sorted(TOOL_NEEDS)}"
+            )
+        return self
+
+
+WebhookEvent = Literal["draft.created", "draft.approved", "draft.rejected", "draft.cancelled"]
+DEFAULT_WEBHOOK_EVENTS: tuple[WebhookEvent, ...] = (
+    "draft.created",
+    "draft.approved",
+    "draft.rejected",
+)
+
+
+class WebhookConfig(BaseModel):
+    """Tells the shop's own system when a request is made or decided. The URL and the signing
+    secret are in the environment (WEBHOOK_URL, WEBHOOK_SECRET), not here."""
+
+    model_config = {"extra": "forbid"}
+
+    events: list[WebhookEvent] = Field(default_factory=lambda: list(DEFAULT_WEBHOOK_EVENTS))
+    timeout_seconds: float = 10
+    max_attempts: int = 8  # then the event is marked failed until someone retries it
+    backoff_seconds: float = 30  # doubled after every failed attempt, at most an hour
+    poll_seconds: float = 15  # how often the server looks for events to send
+    reconcile_hours: int = 48  # how far back to look for a decision that was never queued
+
+
+class ConnectorsConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+
+
 class AppConfig(BaseModel):
     """Mirror of config/app.yaml. Every section has defaults so a partial file is valid."""
 
+    shop: ShopConfig = Field(default_factory=ShopConfig)
+    capabilities: CapabilitiesConfig = Field(default_factory=CapabilitiesConfig)
+    connectors: ConnectorsConfig = Field(default_factory=ConnectorsConfig)
     llm: LLMConfig = LLMConfig()
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
     agent: AgentConfig = AgentConfig()
@@ -213,7 +306,10 @@ def load_app_config(path: Path) -> AppConfig:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # An empty `NAME=` line in .env means "not set", not "an empty string to parse as a number".
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+    )
 
     # LLM
     llm_provider: Provider = "openai"
@@ -246,6 +342,11 @@ class Settings(BaseSettings):
     # Where drafts are written (SPEC 10). An account that may write ONLY the support_drafts table.
     drafts_db_url: str | None = None
 
+    # Where decisions on requests are sent (see connectors.webhook in config/app.yaml). The shop's
+    # system verifies the signature made with the secret.
+    webhook_url: str | None = None
+    webhook_secret: SecretStr | None = None
+
     # Conversation checkpoints: sqlite:///path (default), postgresql://..., or memory.
     checkpoint_url: str | None = None
 
@@ -271,7 +372,17 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _load_yaml(self) -> Settings:
         self.app = load_app_config(self.app_config_path)
+        if self.webhook_url:
+            if not self.webhook_url.startswith(("https://", "http://")):
+                raise ValueError("WEBHOOK_URL must start with https:// (or http:// for testing)")
+            if self.webhook_secret is None:
+                raise ValueError("WEBHOOK_SECRET is required with WEBHOOK_URL: events are signed")
         return self
+
+    @property
+    def draft_events(self) -> frozenset[str]:
+        """The draft events to queue for the webhook; none when no webhook is configured."""
+        return frozenset(self.app.connectors.webhook.events) if self.webhook_url else frozenset()
 
     # --- derived values --------------------------------------------------------------
     @property

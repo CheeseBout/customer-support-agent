@@ -34,6 +34,8 @@ from support_agent.api.schemas import (
     CreatedDraft,
     DraftList,
     DraftOut,
+    EventList,
+    EventOut,
     FactIn,
     FactOut,
     FeedbackRequest,
@@ -56,6 +58,7 @@ from support_agent.core.i18n import Lang, resolve_language, t
 from support_agent.core.logging import bind_context, request_id_var
 from support_agent.core.principal import Principal, hash_user_id
 from support_agent.core.settings import Settings, get_settings
+from support_agent.drafts.events import EventState
 from support_agent.drafts.models import DraftStatus, DraftType
 from support_agent.drafts.service import DraftError, DraftService
 from support_agent.memory.workspace import ARTIFACT_NAMES, WorkspaceError
@@ -590,6 +593,22 @@ async def admin_reject(
         raise draft_failure(exc) from exc
     log.info("draft rejected", extra={"draft_id": draft_id})
     return AdminDraftOut.of(draft)
+
+
+@admin.get("/events", response_model=EventList, summary="Webhook deliveries")
+async def admin_events(
+    principal: StaffDep,
+    services: ServicesDep,
+    state: Annotated[EventState | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> EventList:
+    """What was queued for the shop system, newest first. Look here for `failed` events."""
+    drafts = require_drafts(services)
+    found = await drafts.repo.list_events(state=state, limit=limit)
+    return EventList(
+        configured=bool(services.settings.webhook_url),
+        events=[EventOut(**e.model_dump(exclude={"body"})) for e in found],
+    )
 
 
 @admin.post("/ingest", response_model=IngestResponse, summary="Reload the policy documents")

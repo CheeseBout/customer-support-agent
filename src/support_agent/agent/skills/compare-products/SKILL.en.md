@@ -2,6 +2,7 @@
 name: compare-products
 description: Help choose between products and show a comparison table
 lang: en
+requires: compare_products
 ---
 
 # Comparing and recommending products

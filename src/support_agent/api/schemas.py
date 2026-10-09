@@ -157,6 +157,25 @@ class AdminDraftList(BaseModel):
     offset: int
 
 
+class EventOut(BaseModel):
+    """One event for the shop webhook: what was sent, and how delivery is going."""
+
+    id: str
+    draft_id: str
+    event: str
+    state: Literal["pending", "delivered", "failed"]
+    attempts: int
+    next_attempt_at: datetime
+    last_error: str | None = None
+    created_at: datetime
+    delivered_at: datetime | None = None
+
+
+class EventList(BaseModel):
+    configured: bool = Field(description="False when no WEBHOOK_URL is set: nothing is sent")
+    events: list[EventOut]
+
+
 class ApproveRequest(_Strict):
     note: str | None = Field(default=None, max_length=1000)
 

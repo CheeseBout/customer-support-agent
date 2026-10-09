@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from support_agent.core.capabilities import available_tools
 from support_agent.core.principal import (
     InvalidPrincipal,
     Principal,
@@ -43,11 +44,22 @@ def _arguments(ctx: Context) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def build_server(service: BusinessService, secret: bytes) -> MCPServer:
+def build_server(
+    service: BusinessService, secret: bytes, *, disabled: Iterable[str] = ()
+) -> MCPServer:
+    """The tool server. A tool is registered only if the data it reads is mapped and the shop
+    has not disabled it, so a client's tool list says what this shop can actually answer."""
     server = MCPServer(
         "support-agent-db",
         instructions="Read-only domain tools over the shop database. Identity is implicit.",
     )
+    available = available_tools(service.adapter.mapping.entities, disabled)
+
+    def tool(*, name: str, description: str) -> Callable[[Any], Any]:
+        def register(fn: Any) -> Any:
+            return server.tool(name=name, description=description)(fn) if name in available else fn
+
+        return register
 
     async def run(ctx: Context, tool: str, allowed: set[str], call: Call) -> dict[str, Any]:
         started = time.perf_counter()
@@ -89,7 +101,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
         )
         return result.to_wire()
 
-    @server.tool(
+    @tool(
         name="get_order",
         description="Get one of the customer's own orders (status, totals, dates, items) "
         "by order id.",
@@ -97,10 +109,11 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
     async def get_order(order_id: str, ctx: Context) -> dict[str, Any]:
         return await run(ctx, "get_order", {"order_id"}, lambda p: service.get_order(p, order_id))
 
-    @server.tool(
+    @tool(
         name="list_orders",
         description="List the customer's own recent orders, newest first. Optional status filter "
-        "(processing|shipping|delivered|cancelled) and limit (max 10).",
+        "(pending_payment|processing|shipping|partially_shipped|delivered|cancelled|returned|"
+        "refunded|on_hold) and limit (max 10).",
     )
     async def list_orders(
         ctx: Context, status: str | None = None, limit: int = 5
@@ -109,7 +122,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             ctx, "list_orders", {"status", "limit"}, lambda p: service.list_orders(p, status, limit)
         )
 
-    @server.tool(
+    @tool(
         name="get_shipment_status",
         description="Get carrier, tracking code, status and ETA for one of the customer's "
         "own orders.",
@@ -122,7 +135,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             lambda p: service.get_shipment_status(p, order_id),
         )
 
-    @server.tool(
+    @tool(
         name="check_stock",
         description="Check stock status (in_stock|low_stock|out_of_stock) by exact `sku` or by "
         "product name `query`.",
@@ -134,7 +147,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             ctx, "check_stock", {"sku", "query"}, lambda p: service.check_stock(p, sku, query)
         )
 
-    @server.tool(
+    @tool(
         name="search_products",
         description="Search active products by keywords, optional filters {category, min_price, "
         "max_price}, limit max 10.",
@@ -149,22 +162,23 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             lambda p: service.search_products(p, query, filters, limit),
         )
 
-    @server.tool(
+    @tool(
         name="check_return_eligibility",
         description="Run the shop's return rules for one of the customer's own orders (optionally "
-        "one `sku`). Returns eligible, reason codes, deadline and refundable amount.",
+        "one `sku`, and the customer's `reason` once known: some shops allow longer for a fault). "
+        "Returns eligible, reason codes, deadline and refundable amount.",
     )
     async def check_return_eligibility(
-        order_id: str, ctx: Context, sku: str | None = None
+        order_id: str, ctx: Context, sku: str | None = None, reason: str | None = None
     ) -> dict[str, Any]:
         return await run(
             ctx,
             "check_return_eligibility",
-            {"order_id", "sku"},
-            lambda p: service.check_return_eligibility(p, order_id, sku),
+            {"order_id", "sku", "reason"},
+            lambda p: service.check_return_eligibility(p, order_id, sku, reason),
         )
 
-    @server.tool(
+    @tool(
         name="check_warranty_eligibility",
         description="Run the shop's warranty rules for one `sku` of one of the customer's own "
         "orders. Returns eligible, reason codes, warranty period and expiry date.",
@@ -177,7 +191,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             lambda p: service.check_warranty_eligibility(p, order_id, sku),
         )
 
-    @server.tool(
+    @tool(
         name="compare_products",
         description="Compare 2 to 4 products side by side by SKU: price, category, availability "
         "and every specification, as rows to present as a table.",
@@ -187,7 +201,7 @@ def build_server(service: BusinessService, secret: bytes) -> MCPServer:
             ctx, "compare_products", {"skus"}, lambda p: service.compare_products(p, skus)
         )
 
-    @server.tool(
+    @tool(
         name="prepare_order_draft",
         description="Check stock and price an order from the database (items: sku + qty, "
         "shipping address, payment method). Writes nothing; use it to quote or before proposing.",
@@ -219,7 +233,7 @@ def main() -> None:  # pragma: no cover - process entry point
     adapter = create_adapter(settings, mapping)
     service = BusinessService(adapter, settings.app.business_rules)
     secret = settings.mcp_principal_secret.get_secret_value().encode()
-    build_server(service, secret).run("stdio")
+    build_server(service, secret, disabled=settings.app.capabilities.disabled_tools).run("stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover

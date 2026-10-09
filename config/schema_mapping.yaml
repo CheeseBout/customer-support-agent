@@ -1,74 +1,97 @@
-# Maps the agent's canonical entities to YOUR database (SPEC 8.2).
+# Maps the agent's canonical entities to YOUR database. Docs: docs/schema-mapping.md
 #
-# This file matches the demo database created by `support-agent seed-demo`. To integrate with
-# your own schema, change the right-hand sides only:
+# This is a starting point, not a working file: the table and column names on the right-hand
+# sides are placeholders. Replace them with your own, or let the tool draft the file for you:
+#
+#     support-agent introspect-db --write config/schema_mapping.yaml
+#
+# Then check it against the live database:
+#
+#     support-agent validate-mapping
+#
+# A right-hand side may be:
 #   - a plain column name            sku: product_sku
-#   - a constant                     currency: "'VND'"
+#   - a constant                     currency: "'USD'"
 #   - COALESCE(a, b) / CONCAT(a, b)  name: COALESCE(display_name, title)
 # Nothing else is accepted. For joins or computed columns, create a database VIEW and point
-# `table` at it. Run `support-agent validate-mapping` after every change.
-dialect: postgres
+# `table` at it. A working example for every supported database is in examples/demo-shop/config/.
+dialect: postgres            # postgres | mysql | sqlite | mongodb
 
 entities:
+  # --- required: without these there is nothing to look up -------------------------------------
   customer:
-    table: public.customers
-    fields: {id: id, email: email, phone: phone_number, name: full_name}
+    table: customers
+    fields: {id: id, email: email, phone: phone, name: full_name}
 
   order:
-    table: public.orders
+    table: orders
     fields:
-      id: order_code
+      id: id                        # what the customer calls "my order number"
       customer_id: customer_id
       status: status
-      total: grand_total
-      currency: "'VND'"
+      total: total
       created_at: created_at
+      # Optional, delete the ones you do not have:
+      currency: "'USD'"
       delivered_at: delivered_at
-      shipping_address: ship_address
-      payment_method: pay_method
-    status_map:                       # DB value -> canonical status
-      "DA_GIAO": delivered
-      "DANG_GIAO": shipping
-      "CHO_XU_LY": processing
-      "HUY": cancelled
+      shipping_address: shipping_address
+      payment_method: payment_method
+      subtotal: subtotal
+      shipping_fee: shipping_fee
+      discount: discount
+      tax: tax
+      refunded_amount: refunded_amount
+    # Your status values -> the ones the agent understands: pending_payment, processing,
+    # shipping, partially_shipped, delivered, cancelled, returned, refunded, on_hold.
+    # Every value found in the database must be listed (validate-mapping reports the rest).
+    status_map:
+      "pending": pending_payment
+      "paid": processing
+      "shipped": shipping
+      "delivered": delivered
+      "cancelled": cancelled
+      "refunded": refunded
 
   order_item:
-    table: public.order_lines
-    fields: {order_id: order_code, sku: sku, product_name: name, quantity: qty, unit_price: price}
+    table: order_items
+    fields: {order_id: order_id, sku: sku, product_name: name, quantity: quantity, unit_price: price}
 
+  # --- optional: leave an entity out and the tools that need it switch themselves off ----------
+  # product + inventory  -> product search, comparison, stock checks, and new orders
+  # shipment             -> "where is my order?" with carrier and tracking code
+  # return_request       -> blocks a second return request for the same item
   product:
-    table: public.products
+    table: products
     fields:
       sku: sku
       name: name
       description: description
-      category: category_name
+      category: category
       price: price
-      attributes: specs_json
+      attributes: attributes        # a JSON column (or document) of specifications
       active: is_active
 
   inventory:
-    table: public.stock
-    fields: {sku: sku, quantity: on_hand}
+    table: inventory
+    fields: {sku: sku, quantity: quantity_on_hand}
 
   shipment:
-    table: public.shipments
+    table: shipments
     fields:
-      order_id: order_code
+      order_id: order_id
       carrier: carrier
-      tracking_code: tracking_no
+      tracking_code: tracking_code
       status: status
       updated_at: updated_at
       eta: eta
     status_map:
-      "DANG_VAN_CHUYEN": in_transit
-      "DA_GIAO": delivered
-      "CHO_LAY_HANG": pending_pickup
+      "in_transit": in_transit
+      "delivered": delivered
 
   return_request:
-    table: public.return_requests
-    fields: {id: id, order_id: order_code, sku: sku, status: status, created_at: created_at}
+    table: return_requests
+    fields: {id: id, order_id: order_id, sku: sku, status: status, created_at: created_at}
     status_map:
-      "CHO_DUYET": pending
-      "DA_DUYET": approved
-      "TU_CHOI": rejected
+      "pending": pending
+      "approved": approved
+      "rejected": rejected

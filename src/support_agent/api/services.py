@@ -13,6 +13,7 @@ from support_agent.agent.agent import SupportAgent
 from support_agent.api.auth import JwtVerifier
 from support_agent.core.principal import Principal
 from support_agent.core.settings import Settings
+from support_agent.drafts.events import build_dispatcher
 from support_agent.drafts.service import DraftService
 from support_agent.memory.store import MemoryStore
 from support_agent.memory.workspace import Workspace
@@ -163,4 +164,10 @@ async def open_services(settings: Settings) -> AsyncIterator[Services]:
 
         purge = asyncio.create_task(_purge_loop(services))
         stack.callback(purge.cancel)
+        if services.drafts is not None:
+            dispatcher = build_dispatcher(settings, services.drafts.repo)
+            if dispatcher is not None:  # tell the shop system about decisions, with retries
+                stack.push_async_callback(dispatcher.close)
+                delivery = asyncio.create_task(dispatcher.run_forever())
+                stack.callback(delivery.cancel)
         yield services

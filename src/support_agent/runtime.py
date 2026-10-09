@@ -63,6 +63,7 @@ async def open_agent(
     from support_agent.agent.checkpoint import open_checkpointer
     from support_agent.agent.drafting import DraftProposer
     from support_agent.agent.graph import AgentDeps, build_graph
+    from support_agent.core.capabilities import effective_request_types
     from support_agent.drafts.repository import create_repository
     from support_agent.drafts.service import DraftService
     from support_agent.memory.workspace import Workspace
@@ -79,13 +80,22 @@ async def open_agent(
 
         async def build(client: DomainToolClient | None) -> SupportAgent:
             drafts = proposer = None
+            # What this shop's server can answer, and which requests the shop allows.
+            domain_tools = await client.tool_names() if client is not None else None
+            request_types = effective_request_types(
+                settings.app.capabilities.request_types, domain_tools
+            )
             target = drafts_url or settings.drafts_db_url
             if client is not None and target:
                 repo = create_repository(target)
                 if drafts_url:  # an explicit (throwaway) store: we make its table too
                     await repo.create_schema()
-                drafts = DraftService(repo, settings.app.business_rules)
-                proposer = DraftProposer(client, drafts, settings.app.business_rules)
+                drafts = DraftService(
+                    repo, settings.app.business_rules, publish=settings.draft_events
+                )
+                proposer = DraftProposer(
+                    client, drafts, settings.app.business_rules, request_types=request_types
+                )
                 stack.push_async_callback(repo.close)
             deps = AgentDeps(
                 model=model,
@@ -94,6 +104,7 @@ async def open_agent(
                 config=settings.app,
                 drafts=drafts,
                 proposer=proposer,
+                domain_tools=domain_tools,
                 workspace=workspace,
             )
             return SupportAgent(

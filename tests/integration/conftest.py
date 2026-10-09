@@ -18,14 +18,14 @@ from support_agent.mcp_db.adapters.mongo import MongoAdapter
 from support_agent.mcp_db.adapters.sql import SqlAdapter
 from support_agent.mcp_db.mapping import SchemaMapping, load_mapping
 from support_agent.seed.demo import seed_mongo, seed_sql
-from tests.conftest import ROOT, TZ
+from tests.conftest import DEMO, TZ
 
 pytestmark = pytest.mark.integration
 
 MAPPINGS = {
-    "postgres": ROOT / "config" / "schema_mapping.yaml",
-    "mysql": ROOT / "config" / "examples" / "schema_mapping.mysql.yaml",
-    "mongodb": ROOT / "config" / "examples" / "schema_mapping.mongodb.yaml",
+    "postgres": DEMO / "config" / "schema_mapping.postgres.yaml",
+    "mysql": DEMO / "config" / "schema_mapping.mysql.yaml",
+    "mongodb": DEMO / "config" / "schema_mapping.mongodb.yaml",
 }
 
 
@@ -137,4 +137,4 @@ async def any_adapter(deployment: Deployment) -> AsyncIterator[DataAdapter]:
 
 @pytest.fixture
 def knowledge_dir() -> Path:
-    return ROOT / "knowledge"
+    return DEMO / "knowledge"

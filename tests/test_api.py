@@ -6,6 +6,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +19,12 @@ from pydantic import SecretStr
 from support_agent.api.app import create_app
 from support_agent.api.auth import AuthConfigError, JwtVerifier
 from support_agent.api.services import Readiness, Services
+from support_agent.core.principal import Principal
 from support_agent.core.settings import Settings
 from support_agent.memory.store import MemoryStore
 from support_agent.memory.workspace import Workspace
 from support_agent.security.guardrails import RateLimiter
-from tests.conftest import ALICE, ROOT
+from tests.conftest import ALICE, DEMO_APP
 from tests.fakes import AgentFakeLLM
 from tests.test_agent import RETURN_Q, SEARCH_RETURN, fast_config, retriever  # noqa: F401
 from tests.test_agent_actions import REFUND, Rig, llm_for, rig  # noqa: F401
@@ -58,7 +60,7 @@ class Api:
 async def api(rig: Rig, tmp_path: Path) -> AsyncIterator[Api]:  # noqa: F811
     settings = Settings(
         _env_file=None,
-        app_config_path=ROOT / "config" / "app.yaml",
+        app_config_path=DEMO_APP,
         jwt_secret=SecretStr(SECRET),
         workspace_dir=tmp_path / "workspace",
     )
@@ -170,7 +172,7 @@ async def test_roles_are_enforced_in_both_directions(api: Api):
 async def test_audience_and_issuer_are_checked_when_configured(tmp_path: Path):
     settings = Settings(
         _env_file=None,
-        app_config_path=ROOT / "config" / "app.yaml",
+        app_config_path=DEMO_APP,
         jwt_secret=SecretStr(SECRET),
         jwt_audience="support-api",
         jwt_issuer="shop",
@@ -188,7 +190,7 @@ async def test_audience_and_issuer_are_checked_when_configured(tmp_path: Path):
 async def test_custom_claim_names_are_honoured():
     settings = Settings(
         _env_file=None,
-        app_config_path=ROOT / "config" / "app.yaml",
+        app_config_path=DEMO_APP,
         jwt_secret=SecretStr(SECRET),
         jwt_customer_claim="customer_id",
         jwt_role_claim="https://shop/role",
@@ -200,13 +202,9 @@ async def test_custom_claim_names_are_honoured():
 
 def test_a_missing_secret_stops_the_server_from_starting():
     with pytest.raises(AuthConfigError):
-        JwtVerifier(Settings(_env_file=None, app_config_path=ROOT / "config" / "app.yaml"))
+        JwtVerifier(Settings(_env_file=None, app_config_path=DEMO_APP))
     with pytest.raises(AuthConfigError):
-        JwtVerifier(
-            Settings(
-                _env_file=None, app_config_path=ROOT / "config" / "app.yaml", jwt_algorithm="RS256"
-            )
-        )
+        JwtVerifier(Settings(_env_file=None, app_config_path=DEMO_APP, jwt_algorithm="RS256"))
 
 
 # --- chat -----------------------------------------------------------------------------------
@@ -617,7 +615,7 @@ async def test_cors_is_off_unless_origins_are_configured(api: Api, tmp_path: Pat
 
     settings = Settings(
         _env_file=None,
-        app_config_path=ROOT / "config" / "app.yaml",
+        app_config_path=DEMO_APP,
         jwt_secret=SecretStr(SECRET),
         cors_origins="https://shop.example, https://admin.example",
     )
@@ -681,3 +679,30 @@ async def test_a_withdrawn_answer_is_announced_with_a_replace_event(api: Api):
     replacement = next(d["text"] for n, d in events if n == "replace")
     assert "not eligible" in replacement and "approved" not in replacement
     assert names.index("token") < names.index("replace") < names.index("done")
+
+
+# --- the webhook outbox -------------------------------------------------------------------------------------------
+
+
+async def test_staff_can_see_the_webhook_deliveries_and_customers_cannot(api: Api):
+    from support_agent.drafts.events import event_for
+
+    draft, _ = await api.rig.drafts.create(
+        Principal(user_id="u_100"),
+        "warranty",
+        {"order_id": "1234", "sku": "EAR-BT20", "issue_description": "battery drains"},
+        "s-events",
+    )
+    await api.rig.drafts.repo.enqueue_event(event_for(draft, datetime.now(UTC)))
+    staff = auth("s_1", "staff")
+
+    seen = (await api.client.get("/v1/admin/events", headers=staff)).json()
+    assert seen["configured"] is False  # no WEBHOOK_URL: queued, but nothing is sent
+    (event,) = seen["events"]
+    assert event["id"] == f"{draft.id}:pending" and event["state"] == "pending"
+    assert "body" not in event  # the payload sent to the shop is not repeated here
+    assert (await api.client.get("/v1/admin/events?state=failed", headers=staff)).json()[
+        "events"
+    ] == []
+    assert (await api.client.get("/v1/admin/events", headers=auth())).status_code == 403
+    assert (await api.client.get("/v1/admin/events?state=bogus", headers=staff)).status_code == 400

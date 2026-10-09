@@ -20,12 +20,25 @@ CANONICAL_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     "customer": ({"id"}, {"email", "phone", "name"}),
     "order": (
         {"id", "customer_id", "status", "total", "created_at"},
-        {"currency", "delivered_at", "shipping_address", "payment_method"},
+        {
+            "currency",
+            "delivered_at",
+            "shipping_address",
+            "payment_method",
+            # The parts of `total`, so "why is this order priced like that?" can be answered.
+            "subtotal",
+            "shipping_fee",
+            "discount",
+            "tax",
+            "refunded_amount",
+        },
     ),
     "order_item": ({"order_id", "sku", "quantity", "unit_price"}, {"product_name"}),
     "product": (
         {"sku", "name", "price"},
-        {"description", "category", "attributes", "active"},
+        # `group_id` ties the variants of one product together (size, colour); `options` says
+        # which variant a row is, as JSON or text, e.g. {"size": "M", "colour": "red"}.
+        {"description", "category", "attributes", "active", "group_id", "options"},
     ),
     "inventory": ({"sku", "quantity"}, set()),
     "shipment": (
@@ -34,8 +47,20 @@ CANONICAL_FIELDS: dict[str, tuple[set[str], set[str]]] = {
     ),
     "return_request": ({"id", "order_id", "status"}, {"created_at", "sku"}),
 }
-REQUIRED_ENTITIES = {"customer", "order", "order_item", "product", "inventory", "shipment"}
-CANONICAL_ORDER_STATUSES = {"processing", "shipping", "delivered", "cancelled"}
+# Everything else is optional: a shop without a stock table or shipment records still works, and
+# the tools that need the missing data answer NOT_SUPPORTED (see BusinessService).
+REQUIRED_ENTITIES = {"customer", "order", "order_item"}
+CANONICAL_ORDER_STATUSES = {
+    "pending_payment",
+    "processing",
+    "shipping",
+    "partially_shipped",
+    "delivered",
+    "cancelled",
+    "returned",
+    "refunded",
+    "on_hold",
+}
 
 _IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
 _SQL_NAME = re.compile(rf"^{_IDENT}(\.{_IDENT})?$")

@@ -1,6 +1,22 @@
 # Application configuration. Environment variables (.env) take precedence for secrets and endpoints;
 # everything here is a tunable default. Nothing in code hard-codes these values.
 
+# Who the agent speaks for. All optional; leave empty and it says "an online shop".
+shop:
+  name: ""
+  description: ""                     # e.g. "an online store for phones and laptops"
+  contact:                            # given to customers who ask for a person; nothing else is
+    email: ""
+    phone: ""
+    hours: ""                         # e.g. "Mon-Sat 8:00-20:00"
+    url: ""                           # a help page or contact form
+
+# What the assistant may do. A tool whose data you did not map switches itself off; these settings
+# switch off more. See DEPLOY.md, "Choose what the assistant does".
+capabilities:
+  disabled_tools: []                  # e.g. [compare_products]
+  request_types: [order, refund, return, warranty, handoff]   # what customers may ask for
+
 llm:
   temperature: 0.2
   max_output_tokens: 1024
@@ -80,28 +96,30 @@ db:
   max_rows: 50
   query_timeout_seconds: 5
 
+# Your shop's rules. The code decides eligibility from these values, and the policy documents in
+# knowledge/ only explain them, so the two must say the same thing. The bundled demo shop sets its
+# own values in examples/demo-shop/app.yaml.
 business_rules:
   timezone: Asia/Ho_Chi_Minh
+  currency: VND                       # ISO code; refund and order amounts use it
   return:
     window_days: 7
     window_basis: delivered_at        # delivered_at | created_at
     allowed_order_statuses: [delivered]
-    excluded_categories: [gift_card]
+    excluded_categories: []           # categories that can never be returned, e.g. [gift_card]
   refund:
-    auto_review_max_amount: 500000
-    currency: VND
+    auto_review_max_amount: 500000    # above this, staff are told to review with priority
   warranty:
     default_months: 12
-    by_category: {accessories: 6, appliances: 24}
+    by_category: {}                   # months per category, e.g. {accessories: 6}
   inventory:
     show_exact_quantity: false
     low_stock_threshold: 5
   order:                              # limits on orders the agent may prepare (SPEC 9.3)
-    currency: VND
     max_quantity_per_line: 20
     max_lines: 10
-    payment_methods: [cod, bank_transfer, card, momo, zalopay, vnpay]
-    cod_max_total: 5000000            # matches knowledge/payment-policy; null = no cap
+    payment_methods: [cod, bank_transfer, card]
+    cod_max_total: null               # cash-on-delivery cap in the shop currency; null = no cap
 
 guardrails:
   max_input_chars: 2000
@@ -110,7 +128,7 @@ guardrails:
   pii_masking: true
 
 evals:
-  dataset: ./evals/datasets/baseline.jsonl
+  dataset: ./evals/datasets/shop.jsonl      # your own questions; see DEPLOY.md
   report_dir: ./evals/reports
   retrieval_ks: [1, 3, 6]
   concurrency: 1

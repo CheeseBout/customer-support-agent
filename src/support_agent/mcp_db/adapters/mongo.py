@@ -153,11 +153,12 @@ class MongoAdapter(DataAdapter):
         )
         return await self._run("order", pipeline)
 
-    async def get_shipment(self, order_id: str) -> Row | None:
+    async def get_shipments(self, order_id: str) -> list[Row]:
+        if not self.mapping.has("shipment"):
+            return []
         matches = [self._match_stage("shipment", "order_id", _id_variants(str(order_id)))]
         sort = ("updated_at", -1) if "updated_at" in self._parsed["shipment"] else None
-        rows = await self._run("shipment", self._pipeline("shipment", matches, sort=sort, limit=1))
-        return rows[0] if rows else None
+        return await self._run("shipment", self._pipeline("shipment", matches, sort=sort))
 
     async def get_return_requests(self, order_id: str) -> list[Row]:
         if not self.mapping.has("return_request"):
@@ -167,7 +168,7 @@ class MongoAdapter(DataAdapter):
 
     # --- catalogue -------------------------------------------------------------------
     async def get_products(self, skus: list[str]) -> dict[str, Row]:
-        if not skus:
+        if not skus or not self.mapping.has("product"):
             return {}
         variants = [v for s in skus for v in _id_variants(str(s))]
         matches = [self._match_stage("product", "sku", variants)]
@@ -182,6 +183,8 @@ class MongoAdapter(DataAdapter):
         max_price: float | None,
         candidate_cap: int,
     ) -> list[Row]:
+        if not self.mapping.has("product"):
+            return []
         # Filters run in Python so semantics match the SQL adapter exactly.
         rows = await self._run(
             "product", self._pipeline("product", [], limit=min(candidate_cap, 1000))
@@ -200,7 +203,7 @@ class MongoAdapter(DataAdapter):
         return out
 
     async def get_inventory(self, skus: list[str]) -> dict[str, int]:
-        if not skus:
+        if not skus or not self.mapping.has("inventory"):
             return {}
         variants = [v for s in skus for v in _id_variants(str(s))]
         matches = [self._match_stage("inventory", "sku", variants)]

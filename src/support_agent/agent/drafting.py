@@ -13,15 +13,17 @@ Nothing is written here. A proposal only becomes a draft after the customer conf
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import Field, ValidationError
 
+from support_agent.core.capabilities import REQUEST_TYPES
 from support_agent.core.principal import Principal
+from support_agent.core.reasons import ReasonCode
 from support_agent.core.results import ErrorCode
 from support_agent.core.settings import BusinessRules
-from support_agent.drafts.models import ReasonCode
 from support_agent.drafts.service import DraftService
 from support_agent.rules.eligibility import without_active_requests
 from support_agent.rules.warranty import needs_priority_review
@@ -35,6 +37,7 @@ EDITABLE: dict[str, frozenset[str]] = {
     "return": frozenset({"reason_code", "reason_text"}),
     "warranty": frozenset({"issue_description"}),
     "order": frozenset({"shipping_address", "payment_method", "items"}),
+    "handoff": frozenset({"reason_text", "contact"}),
 }
 MAX_EDITS = 3
 
@@ -42,7 +45,7 @@ MAX_EDITS = 3
 class ProposeDraftArgs(ToolArgs):
     """What the model may say. No amount, no price, no identity: those are not its to give."""
 
-    draft_type: Literal["refund", "return", "warranty", "order"]
+    draft_type: Literal["refund", "return", "warranty", "order", "handoff"]
     order_id: str | None = Field(default=None, description="Needed for refund, return, warranty")
     sku: str | None = Field(default=None, description="The product concerned (needed for warranty)")
     items: list[OrderItemArgs] | None = Field(
@@ -53,6 +56,11 @@ class ProposeDraftArgs(ToolArgs):
     issue_description: str | None = Field(default=None, max_length=1000)
     shipping_address: str | None = None
     payment_method: str | None = None
+    contact: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Handoff only: an email or phone the customer gave for the follow-up",
+    )
 
 
 class ProposalError(Exception):
@@ -78,18 +86,31 @@ class Proposal:
 
 class DraftProposer:
     def __init__(
-        self, client: DomainToolClient, drafts: DraftService, rules: BusinessRules
+        self,
+        client: DomainToolClient,
+        drafts: DraftService,
+        rules: BusinessRules,
+        *,
+        request_types: Collection[str] = REQUEST_TYPES,
     ) -> None:
         self.client = client
         self.drafts = drafts
         self.rules = rules
+        self.request_types = frozenset(request_types)  # the kinds this shop takes through chat
 
     async def propose(self, args: ProposeDraftArgs, principal: Principal) -> Proposal:
+        if args.draft_type not in self.request_types:
+            raise ProposalError(
+                "NOT_SUPPORTED",
+                f"This shop does not take {args.draft_type} requests through the assistant; "
+                "the customer should contact the shop directly.",
+            )
         builders = {
             "refund": self._return_or_refund,
             "return": self._return_or_refund,
             "warranty": self._warranty,
             "order": self._order,
+            "handoff": self._handoff,
         }
         proposal = await builders[args.draft_type](args, principal)
         proposal.args = args.model_dump(mode="json", exclude_none=True)
@@ -122,7 +143,11 @@ class DraftProposer:
                 "INVALID_ARGUMENT", "reason_code is required for a refund or return."
             )
 
-        call_args = {"order_id": args.order_id, **({"sku": args.sku} if args.sku else {})}
+        call_args = {
+            "order_id": args.order_id,
+            **({"sku": args.sku} if args.sku else {}),
+            **({"reason": args.reason_code} if args.reason_code else {}),
+        }
         result = await self.client.call("check_return_eligibility", call_args, principal)
         if not result.ok or not isinstance(result.data, dict):
             assert result.error is not None
@@ -192,6 +217,32 @@ class DraftProposer:
             priority_review=args.draft_type == "refund"
             and needs_priority_review(amount, self.rules.refund),
         )
+
+    # --- handoff to a person ---------------------------------------------------------
+    async def _handoff(self, args: ProposeDraftArgs, principal: Principal) -> Proposal:
+        reason = (args.reason_text or "").strip()
+        if len(reason) < 3:
+            raise ProposalError(
+                "INVALID_ARGUMENT",
+                "reason_text is required: what the customer needs a person for, in their words.",
+            )
+        if args.order_id:  # only an order the customer owns may be attached for staff
+            found = await self.client.call("get_order", {"order_id": args.order_id}, principal)
+            if not found.ok:
+                assert found.error is not None
+                raise ProposalError(found.error.code, found.error.message)
+        contact = (args.contact or "").strip()
+        payload = {
+            "reason": reason,
+            "order_id": args.order_id,
+            "contact": contact,
+        }
+        summary = {
+            "reason": reason,
+            **({"order_id": args.order_id} if args.order_id else {}),
+            **({"contact": contact} if contact else {}),
+        }
+        return Proposal("handoff", payload, summary, priority_review=False)
 
     # --- warranty --------------------------------------------------------------------
     async def _warranty(self, args: ProposeDraftArgs, principal: Principal) -> Proposal:

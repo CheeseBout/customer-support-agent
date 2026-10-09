@@ -13,7 +13,7 @@ from support_agent.rag.pipeline import Outcome
 from support_agent.rag.router import Route
 
 SampleType = Literal["policy", "personal", "combined", "trap", "aftersales"]
-DraftKind = Literal["refund", "return", "warranty", "order"]
+DraftKind = Literal["refund", "return", "warranty", "order", "handoff"]
 
 # An answer fact is a string, or a list of alternatives of which any one satisfies it.
 Fact = str | list[str]

@@ -22,6 +22,8 @@ from support_agent.tools.client import DomainToolClient
 from tests.fakes import FakeSparse, HashingEmbeddings
 
 ROOT = Path(__file__).resolve().parent.parent
+DEMO = ROOT / "examples" / "demo-shop"  # the bundled sample shop: its rules, documents, mappings
+DEMO_APP = DEMO / "app.yaml"
 SECRET = b"test-secret"
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -32,17 +34,17 @@ STAFF = Principal(user_id="s_1", role="staff")
 
 @pytest.fixture(scope="session")
 def app_config() -> AppConfig:
-    return load_app_config(ROOT / "config" / "app.yaml")
+    return load_app_config(DEMO_APP)
 
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(_env_file=None, app_config_path=ROOT / "config" / "app.yaml")
+    return Settings(_env_file=None, app_config_path=DEMO_APP)
 
 
 @pytest.fixture(scope="session")
 def sqlite_mapping() -> SchemaMapping:
-    return load_mapping(ROOT / "config" / "examples" / "schema_mapping.sqlite.yaml")
+    return load_mapping(DEMO / "config" / "schema_mapping.sqlite.yaml")
 
 
 @pytest_asyncio.fixture

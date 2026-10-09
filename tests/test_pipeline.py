@@ -13,7 +13,7 @@ from support_agent.rag.ingest import ingest
 from support_agent.rag.pipeline import SupportRAG
 from support_agent.rag.retriever import Retriever
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ALICE, BOB, ROOT
+from tests.conftest import ALICE, BOB, DEMO
 from tests.fakes import FakeSparse, HashingEmbeddings, ScriptedChatModel, SupportFakeLLM
 
 CFG = RetrievalConfig(top_k=4, score_threshold=0.25)
@@ -23,7 +23,7 @@ CFG = RetrievalConfig(top_k=4, score_threshold=0.25)
 def indexed_store(store: VectorStore) -> VectorStore:
     """The real bilingual knowledge base, indexed with the offline fakes."""
     ingest(
-        ROOT / "knowledge",
+        DEMO / "knowledge",
         store=store,
         embeddings=HashingEmbeddings(),
         sparse=FakeSparse(),

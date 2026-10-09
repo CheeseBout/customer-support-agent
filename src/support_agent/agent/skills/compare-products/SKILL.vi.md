@@ -2,6 +2,7 @@
 name: compare-products
 description: Giúp chọn giữa các sản phẩm và trình bày bảng so sánh
 lang: vi
+requires: compare_products
 ---
 
 # So sánh và gợi ý sản phẩm

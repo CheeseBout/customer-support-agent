@@ -80,7 +80,8 @@ def init() -> None:
             )
     console.print(
         "Next: edit .env, then `support-agent ingest` (your own shop: see DEPLOY.md). "
-        "To try the bundled demo shop instead, run `support-agent seed-demo`."
+        "To try the bundled demo shop instead, set APP_CONFIG_PATH=./examples/demo-shop/app.yaml "
+        "in .env and run `support-agent seed-demo`."
     )
 
 
@@ -127,6 +128,86 @@ def ingest(
         console.print(f"removed: {doc}")
     if report.failed:
         raise typer.Exit(1)
+
+
+# --- calibrate ----------------------------------------------------------------------
+
+
+@app.command()
+def calibrate(
+    questions: Annotated[Path, typer.Argument(help="YAML or JSONL: {q, answerable} per question")],
+) -> None:
+    """Find the relevance threshold for YOUR documents (run `ingest` first). No API key needed.
+
+    The questions file lists questions your documents answer (`answerable: true`) and ones they
+    do not (`answerable: false`: other topics, small talk, policies you do not have). The
+    command reports how well the current `retrieval.score_threshold` separates them and which
+    value to use instead.
+    """
+    from support_agent.evals.calibrate import Calibration, CalibrationError, load_questions
+    from support_agent.evals.calibrate import calibrate as run
+    from support_agent.runtime import build_retriever, open_store
+
+    s = _settings()
+    try:
+        items = load_questions(questions)
+    except CalibrationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    async def go() -> Calibration:
+        async with open_store(s) as store:
+            if store.count() == 0:
+                raise CalibrationError("the index is empty: run `support-agent ingest` first")
+            retriever = build_retriever(s, store)
+            return await asyncio.to_thread(
+                run,
+                retriever,
+                items,
+                configured_threshold=s.app.retrieval.score_threshold,
+            )
+
+    try:
+        result = asyncio.run(go())
+    except CalibrationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    g = result.gate
+
+    def pct(v: float | None) -> str:
+        return "n/a" if v is None else f"{v:.0%}"
+
+    def num(v: float | None) -> str:
+        return "n/a" if v is None else f"{v:.3f}"
+
+    table = Table(
+        title=f"Gate calibration ({g.n_positive} answerable, {g.n_negative} unanswerable)"
+    )
+    table.add_column("")
+    table.add_column("value", justify="right")
+    table.add_row("Configured threshold", str(g.configured_threshold))
+    table.add_row("Answerable questions kept (recall)", pct(g.recall))
+    table.add_row("Unanswerable questions rejected", pct(g.specificity))
+    table.add_row("Lowest score, answerable", num(g.lowest_positive))
+    table.add_row("Highest score, unanswerable", num(g.highest_negative))
+    table.add_row(
+        "[bold]Recommended threshold[/bold]", f"[bold]{num(g.recommended_threshold)}[/bold]"
+    )
+    console.print(table)
+    for label, rows in (
+        ("lowest answerable", g.lowest_positives),
+        ("highest unanswerable", g.highest_negatives),
+    ):
+        if rows:
+            console.print(f"[dim]{label}:[/dim] " + ", ".join(f"{i} ({v:.3f})" for i, v in rows))
+    for warning in result.warnings:
+        console.print(f"[yellow]{warning}[/yellow]")
+    if g.recommended_threshold is not None:
+        console.print(
+            "\nTo use it, set this in your app.yaml:\n"
+            f"  retrieval:\n    score_threshold: {g.recommended_threshold}"
+        )
 
 
 # --- ask ----------------------------------------------------------------------------
@@ -382,6 +463,98 @@ def seed_demo(
     console.print(f"[green]Seeded demo data:[/green] {json.dumps(counts)}")
     console.print(
         "Demo customers: u_100, u_101, u_102. Try: support-agent ask 'Where is order #1236?'"
+    )
+
+
+@app.command("introspect-db")
+def introspect_db(
+    write: Annotated[
+        Path | None, typer.Option("--write", help="Save the draft here instead of printing it")
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite a file you have edited")
+    ] = False,
+    schema: Annotated[
+        str | None, typer.Option(help="PostgreSQL schema to read (default: public)")
+    ] = None,
+) -> None:
+    """Draft config/schema_mapping.yaml by reading the structure of YOUR database.
+
+    Reads table and column names, declared foreign keys and the distinct values of status
+    columns (no customer data), guesses which of your columns is which, and writes a draft with
+    every guess marked. Review it, then run `validate-mapping`.
+    """
+    from support_agent.mcp_db import introspect as intro
+    from support_agent.mcp_db.factory import normalise_db_url
+    from support_agent.mcp_db.mapping import MappingError, load_mapping
+
+    s = _settings()
+    if not s.business_db_url:
+        console.print("[red]Set BUSINESS_DB_URL (and BUSINESS_DB_TYPE) first.[/red]")
+        raise typer.Exit(1)
+    dialect = s.business_db_type
+    url = normalise_db_url(dialect, s.business_db_url)
+    currency = s.app.business_rules.currency
+
+    if write is not None and write.exists() and not force and not intro.is_shipped_template(write):
+        console.print(f"[red]{write} already exists and is not the template.[/red] Use --force.")
+        raise typer.Exit(1)
+
+    async def read() -> intro.Proposal:
+        if dialect == "mongodb":
+            tables, values = await intro.read_mongo(url)
+            return intro.propose_mongo(tables, currency=currency, status_values=values)
+        tables, values = await intro.read_sql(url, schema=schema, dialect=dialect)
+        return intro.propose(tables, dialect=dialect, currency=currency, status_values=values)
+
+    try:
+        proposal = asyncio.run(read())
+    except Exception as exc:
+        console.print(f"[red]Could not read the database ({type(exc).__name__}).[/red]")
+        raise typer.Exit(1) from exc
+
+    draft = intro.render_yaml(proposal)
+    table = Table("entity", "table", "fields found", "")
+    for name in intro.ENTITIES:
+        guess = proposal.entities.get(name)
+        if guess is None:
+            required = name in intro.REQUIRED_ENTITIES
+            table.add_row(
+                name, "-", "-", "[red]MISSING[/red]" if required else "[dim]not found[/dim]"
+            )
+            continue
+        flags = []
+        if guess.missing_required:
+            flags.append(f"[red]required missing: {', '.join(guess.missing_required)}[/red]")
+        if guess.unmapped_statuses:
+            flags.append(f"[yellow]unknown statuses: {', '.join(guess.unmapped_statuses)}[/yellow]")
+        if guess.confidence == "check":
+            flags.append("[yellow]check[/yellow]")
+        table.add_row(
+            name, guess.table, str(len(guess.fields)), " ".join(flags) or "[green]ok[/green]"
+        )
+    console.print(table)
+    for problem in proposal.problems:
+        console.print(f"[red]problem:[/red] {problem}")
+    for note in proposal.notes:
+        console.print(f"[dim]note: {note}[/dim]")
+    if proposal.unused_tables:
+        console.print(f"[dim]not used: {', '.join(proposal.unused_tables)}[/dim]")
+
+    if write is None:
+        console.print()
+        console.print(draft, markup=False, highlight=False)
+    else:
+        write.parent.mkdir(parents=True, exist_ok=True)
+        write.write_text(draft, encoding="utf-8")
+        console.print(f"[green]Draft written to {write}.[/green]")
+        try:
+            load_mapping(write)
+        except MappingError as exc:
+            console.print(f"[yellow]The draft does not load yet:[/yellow] {exc}")
+    console.print(
+        "Review every line marked `# check` or `TODO_`, then run `support-agent validate-mapping`."
+        + ("" if write else " Save this with --write config/schema_mapping.yaml.")
     )
 
 

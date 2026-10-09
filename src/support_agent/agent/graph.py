@@ -50,6 +50,7 @@ from support_agent.agent.markers import AnswerStream
 from support_agent.agent.prompts import system_prompt
 from support_agent.agent.state import AgentState
 from support_agent.agent.tools import PROPOSE_DRAFT, ToolExecutor, schema_tools_for, wrap_result
+from support_agent.core.capabilities import REQUEST_TYPES, Offer, RequestType
 from support_agent.core.i18n import t
 from support_agent.core.principal import Principal
 from support_agent.core.settings import AppConfig
@@ -112,11 +113,20 @@ class AgentDeps:
     # still answers questions but says it cannot submit anything.
     drafts: DraftService | None = None
     proposer: DraftProposer | None = None
+    # The data tools this shop's server offers (None: all). Others are hidden from the model.
+    domain_tools: frozenset[str] | None = None
     workspace: Workspace | None = None  # per-session files (comparison table, request summary)
     clock: Callable[[], datetime] = field(default=_utcnow)
 
 
 # --- helpers ------------------------------------------------------------------------
+
+
+def _request_types(deps: AgentDeps) -> tuple[RequestType, ...]:
+    """The kinds of request this deployment takes (none without a proposer)."""
+    if deps.proposer is None:
+        return ()
+    return tuple(r for r in REQUEST_TYPES if r in deps.proposer.request_types)
 
 
 def _turn_index(messages: Sequence[BaseMessage], turn_human_id: str | None) -> int:
@@ -231,12 +241,18 @@ def clean_answer(raw: str) -> tuple[str, bool, list[str]]:
 
 def build_graph(deps: AgentDeps, checkpointer: Any) -> CompiledStateGraph:
     cfg = deps.config
+    offer = Offer(
+        domain_tools=deps.domain_tools,
+        request_types=_request_types(deps),
+    )
     executor = ToolExecutor(
         client=deps.client,
         retriever=deps.retriever,
         config=cfg.agent,
         drafts=deps.drafts,
         proposer=deps.proposer,
+        rules=cfg.business_rules,
+        domain_tools=deps.domain_tools,
     )
 
     def new_pending(proposal: Proposal, call_id: str, *, edits: int = 0) -> dict[str, Any]:
@@ -354,7 +370,9 @@ def build_graph(deps: AgentDeps, checkpointer: Any) -> CompiledStateGraph:
     async def agent(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         writer = get_stream_writer()
         route_name = state["route"] or "policy"
-        tools = schema_tools_for(route_name, actions=executor.actions_enabled)
+        tools = schema_tools_for(
+            route_name, actions=executor.actions_enabled, domain=executor.domain_tools
+        )
         messages: list[BaseMessage] = [
             SystemMessage(
                 content=system_prompt(
@@ -363,6 +381,8 @@ def build_graph(deps: AgentDeps, checkpointer: Any) -> CompiledStateGraph:
                     actions=executor.actions_enabled,
                     summary=state.get("summary"),
                     preferences=_preferences(state),
+                    shop=cfg.shop,
+                    offer=offer,
                 )
             ),
             *_model_messages(state, cfg.agent.history_messages),

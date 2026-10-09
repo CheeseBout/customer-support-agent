@@ -1,0 +1,28 @@
+# Configuration for the bundled demo shop. It starts from the shared defaults and changes only
+# the paths that point at the demo's documents, evaluation data and sample database.
+#
+#   APP_CONFIG_PATH=examples/demo-shop/app.yaml support-agent ingest
+#
+# Run it from the repository root: the paths below are relative to the working directory.
+extends: ../../config/app.yaml
+
+knowledge:
+  dir: ./examples/demo-shop/knowledge
+
+mapping:
+  # Pick the file that matches BUSINESS_DB_TYPE: postgres, mysql, sqlite or mongodb.
+  path: ./examples/demo-shop/config/schema_mapping.postgres.yaml
+
+# The demo shop's rules. They match the sample documents in knowledge/.
+business_rules:
+  return:
+    excluded_categories: [gift_card]
+  warranty:
+    by_category: {accessories: 6, appliances: 24}
+  order:
+    payment_methods: [cod, bank_transfer, card, momo, zalopay, vnpay]
+    cod_max_total: 5000000            # matches knowledge/payment-policy
+
+evals:
+  dataset: ./examples/demo-shop/evals/datasets/baseline.jsonl
+  report_dir: ./examples/demo-shop/evals/reports

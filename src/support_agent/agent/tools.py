@@ -27,11 +27,11 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, ValidationError
 
 from support_agent.agent.drafting import DraftProposer, Proposal, ProposalError, ProposeDraftArgs
-from support_agent.agent.skills import load_skill, skill_names
+from support_agent.agent.skills import load_skill, skill_facts, skill_names
 from support_agent.core.principal import Principal
 from support_agent.core.results import ToolError, ToolResult
 from support_agent.core.retry import with_backoff
-from support_agent.core.settings import AgentConfig
+from support_agent.core.settings import AgentConfig, BusinessRules
 from support_agent.drafts.models import Draft
 from support_agent.drafts.service import DraftError, DraftService
 from support_agent.mcp_db.server import IDENTITY_ARGS
@@ -65,7 +65,7 @@ AUTHORITATIVE_TOOLS = frozenset(
 RETRYABLE = ("UPSTREAM_ERROR", "TIMEOUT")
 # A "no" that the shop's own rules or stock produced. It is a real answer to the customer's
 # request (unlike a malformed call), so it counts as data when the outcome is labelled.
-BUSINESS_REFUSALS = frozenset({"NOT_ELIGIBLE", "OUT_OF_STOCK", "LIMIT_EXCEEDED"})
+BUSINESS_REFUSALS = frozenset({"NOT_ELIGIBLE", "OUT_OF_STOCK", "LIMIT_EXCEEDED", "NOT_SUPPORTED"})
 # Lookups may not starve the request the customer asked for: propose_draft keeps a small reserve
 # beyond `max_tool_calls`, and a tool that models tend to repeat is capped per question.
 ACTION_RESERVE = 2
@@ -97,7 +97,8 @@ INTERNAL_SPECS: list[tuple[str, str, type[BaseModel]]] = [
     ),
     (
         PROPOSE_DRAFT,
-        "Ask the customer to confirm a refund, return, warranty claim or new order. Give only "
+        "Ask the customer to confirm a refund, return, warranty claim, new order or a request "
+        "to be passed to a person. Give only "
         "the type, order, item, reason or order details: amounts and eligibility are worked out "
         "by the system. Nothing is submitted until the customer confirms.",
         ProposeDraftArgs,
@@ -132,14 +133,21 @@ ROUTE_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
-def allowed_tools(route: str, *, actions: bool = True) -> frozenset[str]:
+def allowed_tools(
+    route: str, *, actions: bool = True, domain: frozenset[str] | None = None
+) -> frozenset[str]:
+    """Tools for `route`. `domain` lists the data tools this shop has (None: all of them)."""
     names = ROUTE_TOOLS.get(route, frozenset())
+    if domain is not None:
+        names = names - (DOMAIN_TOOL_NAMES - domain)
     return names if actions else names - ACTION_TOOLS
 
 
-def schema_tools_for(route: str, *, actions: bool = True) -> list[BaseTool]:
+def schema_tools_for(
+    route: str, *, actions: bool = True, domain: frozenset[str] | None = None
+) -> list[BaseTool]:
     """Self-describing (non-executable) tools the model may see for `route`."""
-    allowed = allowed_tools(route, actions=actions)
+    allowed = allowed_tools(route, actions=actions, domain=domain)
     return [schema_tool(n, d, s) for n, d, s in [*INTERNAL_SPECS, *TOOL_SPECS] if n in allowed]
 
 
@@ -199,6 +207,8 @@ def draft_view(draft: Draft) -> dict[str, Any]:
         }
     elif draft.type == "warranty":
         view |= {"order_id": payload.get("order_id"), "sku": payload.get("sku")}
+    elif draft.type == "handoff":
+        view |= {"order_id": payload.get("order_id"), "reason": payload.get("reason")}
     else:
         view |= {"total": payload.get("total"), "currency": payload.get("currency")}
     if draft.status in ("approved", "rejected") and draft.review_note:
@@ -215,17 +225,26 @@ class ToolExecutor:
         config: AgentConfig,
         drafts: DraftService | None = None,
         proposer: DraftProposer | None = None,
+        rules: BusinessRules | None = None,
+        domain_tools: frozenset[str] | None = None,
     ) -> None:
         self.client = client
         self.retriever = retriever
         self.cfg = config
         self.drafts = drafts
         self.proposer = proposer
+        self.rules = rules or BusinessRules()
+        self.domain_tools = domain_tools  # the data tools this shop has; None means all
 
     @property
     def actions_enabled(self) -> bool:
-        """Requests need somewhere to store drafts and a way to check eligibility first."""
-        return self.drafts is not None and self.proposer is not None
+        """Requests need somewhere to store drafts, a way to check eligibility first, and at
+        least one kind of request the shop takes through the assistant."""
+        return (
+            self.drafts is not None
+            and self.proposer is not None
+            and bool(self.proposer.request_types)
+        )
 
     async def run(
         self,
@@ -241,7 +260,7 @@ class ToolExecutor:
     ) -> ToolBatch:
         batch = ToolBatch()
         registry = dict(known_docs)  # shared by this round's calls so ids never collide
-        allowed = allowed_tools(route, actions=self.actions_enabled)
+        allowed = allowed_tools(route, actions=self.actions_enabled, domain=self.domain_tools)
 
         async def one(index: int, call: dict[str, Any]) -> tuple[str, str, _Outcome]:
             name = str(call.get("name", ""))
@@ -432,7 +451,7 @@ class ToolExecutor:
         return _Outcome(ToolResult.success({"id": draft.id, "status": draft.status}))
 
     def _skill(self, name: str, language: str) -> _Outcome:
-        skill = load_skill(name.strip(), language)
+        skill = load_skill(name.strip(), language, skill_facts(self.rules, language))
         if skill is None:
             return _Outcome(
                 ToolResult.failure(

@@ -1,0 +1,121 @@
+# The words `support-agent introspect-db` uses to recognise a shop's tables, columns and statuses.
+# Names are compared after lower-casing, removing diacritics and joining words with "_", so
+# "Đã Giao", "da_giao" and "DaGiao" are the same word. English and Vietnamese live side by side.
+# Add your own spelling here if the tool keeps missing a name in your schema.
+
+# Tables: the names an entity usually goes by (singular; "orders" is read as "order").
+tables:
+  order_item: [order_item, order_line, order_detail, order_product, line_item, orderline,
+    orderitem, order_row, order_entry, don_hang_chi_tiet, chi_tiet_don_hang]
+  return_request: [return_request, return, rma, refund_request, refund, return_order, exchange,
+    tra_hang, doi_tra, yeu_cau_doi_tra]
+  shipment: [shipment, shipping, delivery, tracking, parcel, fulfillment, fulfilment,
+    consignment, package, van_don, giao_hang]
+  inventory: [inventory, stock, stock_level, stock_item, warehouse_stock, availability, ton_kho,
+    tonkho, kho]
+  order: [order, sales_order, sale_order, purchase, sale, don_hang, donhang, don_dat]
+  product: [product, item, article, goods, catalog, catalogue, merchandise, listing, san_pham,
+    sanpham, hang_hoa, product_variant, variant]
+  customer: [customer, user, member, account, client, buyer, shopper, khach_hang, khachhang,
+    nguoi_dung]
+
+# Columns: per canonical field, the names it usually has, strongest first.
+fields:
+  customer:
+    id: [id, customer_id, user_id, customer_code, user_code, uuid, code]
+    email: [email, email_address, user_email, mail]
+    phone: [phone, phone_number, mobile, mobile_phone, telephone, tel, sdt, so_dien_thoai]
+    name: [full_name, name, customer_name, display_name, fullname, ho_ten, ten]
+  order:
+    id: [order_code, order_number, order_no, order_ref, order_reference, code, number, reference,
+      ref, ma_don_hang, order_id, id]
+    customer_id: [customer_id, user_id, customer, buyer_id, account_id, member_id, client_id,
+      khach_hang_id]
+    status: [status, order_status, state, trang_thai]
+    total: [grand_total, total, total_amount, order_total, total_price, amount, total_paid,
+      tong_tien, gia_tri]
+    created_at: [created_at, created, order_date, placed_at, ordered_at, date_created,
+      created_on, order_time, ngay_dat, date]
+    currency: [currency, currency_code, currency_iso]
+    delivered_at: [delivered_at, delivery_date, delivered_on, date_delivered, completed_at,
+      received_at, ngay_giao]
+    shipping_address: [shipping_address, ship_address, delivery_address, ship_to, address,
+      dia_chi_giao_hang, dia_chi]
+    payment_method: [payment_method, pay_method, payment_type, payment_gateway, payment,
+      phuong_thuc_thanh_toan]
+    subtotal: [subtotal, sub_total, items_total, subtotal_amount]
+    shipping_fee: [shipping_fee, shipping_cost, shipping_total, ship_fee, delivery_fee,
+      shipping_amount, phi_van_chuyen]
+    discount: [discount, discount_total, discount_amount, coupon_amount, giam_gia]
+    tax: [tax, tax_total, tax_amount, vat, vat_amount]
+    refunded_amount: [refunded_amount, refund_total, total_refunded, amount_refunded, refunded]
+  order_item:
+    order_id: [order_code, order_id, order_number, order_no, order_ref, order]
+    sku: [sku, product_sku, variant_sku, item_sku, product_code, item_code, ma_san_pham,
+      product_id]
+    product_name: [product_name, name, title, item_name, ten_san_pham, description]
+    quantity: [quantity, qty, units, count, so_luong]
+    unit_price: [unit_price, price, item_price, price_each, sale_price, don_gia]
+  product:
+    sku: [sku, product_sku, product_code, item_code, code, id]
+    name: [name, title, product_name, display_name, ten_san_pham]
+    price: [price, unit_price, sale_price, regular_price, selling_price, gia, amount]
+    description: [description, short_description, details, summary, body, content, mo_ta]
+    category: [category_name, category, product_type, type, collection, department, danh_muc,
+      category_id]
+    attributes: [specs_json, attributes, specs, specifications, properties, metadata, attrs,
+      extra, thong_so]
+    active: [is_active, active, enabled, is_published, published, visible, available]
+    group_id: [group_id, product_group_id, parent_id, parent_product_id, parent_sku]
+    options: [options, variant_options, option_values, variant_title, variant_name, variant]
+  inventory:
+    sku: [sku, product_sku, product_code, item_code, product_id]
+    quantity: [on_hand, quantity_on_hand, quantity, qty, stock, stock_quantity, available,
+      in_stock, units, ton_kho]
+  shipment:
+    order_id: [order_code, order_id, order_number, order_no, order_ref, order]
+    status: [status, shipment_status, delivery_status, state]
+    carrier: [carrier, courier, shipping_company, shipper, provider, service, don_vi_van_chuyen]
+    tracking_code: [tracking_code, tracking_no, tracking_number, tracking, waybill, awb,
+      ma_van_don]
+    updated_at: [updated_at, last_updated, last_update, modified_at, updated, status_updated_at]
+    eta: [eta, estimated_delivery, expected_delivery, estimated_arrival, estimated_at,
+      delivery_estimate, du_kien]
+  return_request:
+    id: [id, return_id, request_id, rma_number, rma, code]
+    order_id: [order_code, order_id, order_number, order_no, order_ref, order]
+    status: [status, state]
+    created_at: [created_at, requested_at, request_date, created, date]
+    sku: [sku, product_sku, product_code, item_sku]
+
+# Words that turn a name into something else: "refund_amount" is not the order total.
+qualifiers: [refund, refunded, discount, tax, vat, shipping, ship, subtotal, sub, fee, cost,
+  coupon, original, old, previous, net, gross]
+
+# Status values -> canonical status. Parts of a value are matched, and the first status whose
+# word appears wins, so more specific statuses come first ("unpaid" before "paid").
+status_words:
+  order:
+    refunded: [refund, hoan_tien]
+    returned: [return, tra_hang, doi_tra]
+    cancelled: [cancel, huy, void, fail, expire, reject]
+    on_hold: [hold, tam_giu, pause, suspend]
+    partially_shipped: [partial, mot_phan]
+    pending_payment: [unpaid, await, wait_pay, pending_pay, payment_pending, cho_thanh_toan,
+      chua_thanh_toan]
+    delivered: [deliver, da_giao, complete, hoan_thanh, done, fulfil, closed, received, finish,
+      success]
+    shipping: [ship, dang_giao, transit, dispatch, giao_hang, out_for]
+    processing: [process, pending, new, confirm, paid, pack, prepar, xu_ly, open, placed,
+      created, approv, accept, in_progress, cho_xac_nhan]
+  shipment:
+    returned: [return, tra_hang]
+    failed: [fail, undeliver, exception, lost, that_bai]
+    delivered: [deliver, da_giao, complete, success, hoan_thanh]
+    in_transit: [transit, van_chuyen, dang_giao, ship, dispatch, out_for]
+    pending_pickup: [pending, pickup, pick_up, cho_lay, label, ready, created, wait, new]
+  return_request:
+    rejected: [reject, tu_choi, deny, denied, decline]
+    cancelled: [cancel, huy, withdraw]
+    approved: [approv, da_duyet, accept, complete, refund, done]
+    pending: [pending, cho_duyet, request, open, new, submit, review]

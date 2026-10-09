@@ -21,7 +21,17 @@ from support_agent.mcp_db.mapping import EntityMapping, SchemaMapping
 Row = dict[str, Any]
 
 _DATE_FIELDS = {"created_at", "delivered_at", "updated_at", "eta"}
-_NUMBER_FIELDS = {"total", "price", "unit_price", "quantity"}
+_NUMBER_FIELDS = {
+    "total",
+    "price",
+    "unit_price",
+    "quantity",
+    "subtotal",
+    "shipping_fee",
+    "discount",
+    "tax",
+    "refunded_amount",
+}
 
 
 class AdapterError(RuntimeError):
@@ -97,7 +107,7 @@ def normalise_row(
             out[key] = _as_number(value)
         elif key == "active":
             out[key] = _as_bool(value)
-        elif key == "attributes" and isinstance(value, str):
+        elif key in ("attributes", "options") and isinstance(value, str):
             try:
                 out[key] = json.loads(value)
             except ValueError:
@@ -105,7 +115,7 @@ def normalise_row(
         elif key == "status":
             raw = str(value)
             out[key] = ent.status_map.get(raw, ent.status_map.get(raw.strip(), raw.strip().lower()))
-        elif key in {"id", "order_id", "customer_id", "sku"}:
+        elif key in {"id", "order_id", "customer_id", "sku", "group_id"}:
             out[key] = str(value)
         else:
             out[key] = value
@@ -134,6 +144,10 @@ class DataAdapter(ABC):
         self.timeout_seconds = timeout_seconds
         self.tz = ZoneInfo(timezone)
 
+    def supports(self, *entities: str) -> bool:
+        """True when every named entity is mapped (the optional ones may be missing)."""
+        return all(self.mapping.has(e) for e in entities)
+
     # --- orders ----------------------------------------------------------------------
     @abstractmethod
     async def get_order(self, order_id: str, owner: str | None) -> Row | None:
@@ -147,7 +161,14 @@ class DataAdapter(ABC):
         """Newest first."""
 
     @abstractmethod
-    async def get_shipment(self, order_id: str) -> Row | None: ...
+    async def get_shipments(self, order_id: str) -> list[Row]:
+        """Every shipment row of the order, most recently updated first. An order may have
+        several parcels, or a row per tracking update."""
+
+    async def get_shipment(self, order_id: str) -> Row | None:
+        """The most recently updated shipment row."""
+        rows = await self.get_shipments(order_id)
+        return rows[0] if rows else None
 
     @abstractmethod
     async def get_return_requests(self, order_id: str) -> list[Row]: ...

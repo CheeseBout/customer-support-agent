@@ -2,6 +2,7 @@
 name: warranty-claim
 description: Kiểm tra bảo hành cho sản phẩm và tạo yêu cầu bảo hành
 lang: vi
+requires: request:warranty
 ---
 
 # Yêu cầu bảo hành
@@ -12,4 +13,4 @@ lang: vi
 4. Nếu còn bảo hành và khách muốn tiếp tục, gọi `propose_draft` với `draft_type` là "warranty", mã đơn, SKU và `issue_description` theo lời khách.
 5. Khách xác nhận. Chỉ sau khi `propose_draft` báo đã tạo, mới đưa mã yêu cầu và nói nhân viên sẽ hướng dẫn cách gửi hoặc mang sản phẩm đến trung tâm bảo hành.
 
-Những trường hợp không được bảo hành (hư hỏng vật lý, vào nước, bị sửa bởi nơi khác, hao mòn thông thường) nằm trong chính sách: dùng `search_policy` và đọc lại chính xác nếu khách mô tả hư hỏng như vậy. Sửa chữa thường mất 7 đến 15 ngày làm việc; không hứa đổi sản phẩm mới vì điều đó được quyết định sau khi kiểm tra.
+Những trường hợp không được bảo hành (hư hỏng vật lý, vào nước, bị sửa bởi nơi khác, hao mòn thông thường) nằm trong chính sách: dùng `search_policy` và đọc lại chính xác nếu khách mô tả hư hỏng như vậy. Dùng `search_policy` để biết thời gian sửa chữa; không hứa đổi sản phẩm mới vì điều đó được quyết định sau khi kiểm tra.

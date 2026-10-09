@@ -13,11 +13,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-DraftType = Literal["order", "refund", "return", "warranty"]
+from support_agent.core.reasons import ReasonCode
+
+DraftType = Literal["order", "refund", "return", "warranty", "handoff"]
 DraftStatus = Literal["pending", "approved", "rejected", "cancelled"]
-ReasonCode = Literal[
-    "defective", "wrong_item", "not_as_described", "damaged_in_transit", "changed_mind", "other"
-]
 
 # SPEC 10.3: pending -> approved | rejected | cancelled, never backwards.
 TRANSITIONS: dict[str, frozenset[str]] = {
@@ -66,6 +65,14 @@ class ReturnPayload(_Payload):
     )  # the rule result at the time
 
 
+class HandoffPayload(_Payload):
+    """A customer who needs a person: what they need, in their words, and how to reach them."""
+
+    reason: str = Field(min_length=3, max_length=1000)
+    order_id: str | None = None
+    contact: str = Field(default="", max_length=200)  # an email or phone the customer gave
+
+
 class WarrantyPayload(_Payload):
     order_id: str
     sku: str
@@ -78,6 +85,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "refund": ReturnPayload,
     "return": ReturnPayload,
     "warranty": WarrantyPayload,
+    "handoff": HandoffPayload,
 }
 
 

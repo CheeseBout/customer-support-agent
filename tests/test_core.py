@@ -17,7 +17,7 @@ from support_agent.core.principal import (
 )
 from support_agent.core.settings import Settings
 from support_agent.security.pii import mask_email, mask_phone, mask_text
-from tests.conftest import ROOT
+from tests.conftest import DEMO_APP
 
 # --- settings ---------------------------------------------------------------------------------
 
@@ -35,13 +35,9 @@ def test_settings_default_model_follows_provider():
         ("anthropic", "claude-haiku-4-5"),
         ("gemini", "gemini-3.5-flash-lite"),
     ]:
-        s = Settings(
-            _env_file=None, llm_provider=provider, app_config_path=ROOT / "config" / "app.yaml"
-        )
+        s = Settings(_env_file=None, llm_provider=provider, app_config_path=DEMO_APP)
         assert s.chat_model_name == model
-    s = Settings(
-        _env_file=None, llm_provider="openrouter", app_config_path=ROOT / "config" / "app.yaml"
-    )
+    s = Settings(_env_file=None, llm_provider="openrouter", app_config_path=DEMO_APP)
     assert s.chat_model_name.endswith(":free")
 
 
@@ -53,9 +49,7 @@ def test_settings_model_override_and_missing_yaml(tmp_path):
 
 def test_embedding_model_default_and_override(settings: Settings):
     assert settings.embedding_model_name == "intfloat/multilingual-e5-large"
-    s = Settings(
-        _env_file=None, embedding_provider="openai", app_config_path=ROOT / "config" / "app.yaml"
-    )
+    s = Settings(_env_file=None, embedding_provider="openai", app_config_path=DEMO_APP)
     assert s.embedding_model_name == "text-embedding-3-small"
 
 
@@ -152,3 +146,12 @@ def test_principal_expires():
     with pytest.raises(InvalidPrincipal, match="expired"):
         verify_principal(token, b"k")
     assert time.time() > 0
+
+
+def test_an_empty_line_in_dotenv_counts_as_not_set(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text("LLM_REQUESTS_PER_MINUTE=\nEMBEDDING_MODEL=\nJWT_SECRET=\n", encoding="utf-8")
+    for name in ("LLM_REQUESTS_PER_MINUTE", "EMBEDDING_MODEL", "JWT_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    s = Settings(_env_file=env, app_config_path=DEMO_APP)
+    assert s.llm_requests_per_minute is None and s.embedding_model is None

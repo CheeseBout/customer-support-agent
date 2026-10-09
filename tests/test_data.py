@@ -35,9 +35,9 @@ from support_agent.mcp_db.server import PRINCIPAL_META_KEY, build_server
 from support_agent.mcp_db.service import BusinessService, fold
 from support_agent.seed.demo import mongo_documents
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ALICE, BOB, ROOT, SECRET, STAFF, TZ
+from tests.conftest import ALICE, BOB, DEMO, SECRET, STAFF, TZ
 
-EXAMPLES = ROOT / "config" / "examples"
+EXAMPLES = DEMO / "config"
 
 # --- expression parser --------------------------------------------------------------------------
 
@@ -77,7 +77,7 @@ def test_parser_rejects_anything_outside_the_whitelist(bad: str):
 
 @pytest.mark.parametrize(
     "path",
-    [ROOT / "config" / "schema_mapping.yaml", *sorted(EXAMPLES.glob("schema_mapping.*.yaml"))],
+    sorted(EXAMPLES.glob("schema_mapping.*.yaml")),
     ids=lambda p: p.name,
 )
 def test_shipped_mappings_are_valid(path: Path):
@@ -97,7 +97,7 @@ def _load(d: dict[str, Any]) -> SchemaMapping:
 
 def test_mapping_reports_every_problem_at_once():
     d = mapping_dict()
-    del d["entities"]["inventory"]
+    del d["entities"]["order_item"]
     del d["entities"]["order"]["fields"]["customer_id"]
     d["entities"]["order"]["fields"]["colour"] = "colour"
     d["entities"]["product"]["fields"]["name"] = "LOWER(name)"
@@ -106,7 +106,7 @@ def test_mapping_reports_every_problem_at_once():
         _load(d)
     text = str(exc.value)
     for fragment in (
-        "missing required entity 'inventory'",
+        "missing required entity 'order_item'",
         "order: missing required field 'customer_id'",
         "order: unknown field 'colour'",
         "not allowed",
@@ -389,7 +389,9 @@ async def test_shipment_status(service: BusinessService):
     assert none.ok and none.data["shipment"] is None and "No shipment" in none.data["note"]
 
 
-async def test_stock_hides_exact_quantity_unless_configured_or_staff(service: BusinessService):
+async def test_stock_hides_exact_quantity_unless_configured_or_staff(
+    service: BusinessService, monkeypatch: pytest.MonkeyPatch
+):
     r = await service.check_stock(ALICE, sku="PHN-X100")
     assert r.data["items"] == [
         {"sku": "PHN-X100", "name": "Điện thoại Nova X100", "status": "in_stock"}
@@ -404,7 +406,7 @@ async def test_stock_hides_exact_quantity_unless_configured_or_staff(service: Bu
     ] == "out_of_stock"
     assert (await service.check_stock(STAFF, sku="LAP-PRO14")).data["items"][0]["quantity"] == 3
 
-    service.rules.inventory.show_exact_quantity = True
+    monkeypatch.setattr(service.rules.inventory, "show_exact_quantity", True)  # undone after
     assert (await service.check_stock(ALICE, sku="LAP-PRO14")).data["items"][0]["quantity"] == 3
 
 

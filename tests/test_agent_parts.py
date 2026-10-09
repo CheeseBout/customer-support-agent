@@ -23,7 +23,7 @@ from support_agent.rag.index import VectorStore
 from support_agent.rag.ingest import ingest
 from support_agent.rag.retriever import Retriever
 from support_agent.tools.client import DomainToolClient
-from tests.conftest import ALICE, BOB, ROOT
+from tests.conftest import ALICE, BOB, DEMO
 from tests.fakes import FakeSparse, HashingEmbeddings
 
 # --- citation / no-info markers -------------------------------------------------------------------
@@ -111,7 +111,7 @@ def test_system_prompt_carries_language_hints_and_version():
     assert text.startswith("You are the customer support agent")
     assert "Reply in Vietnamese" in text and "order id(s) 1234" in text and "{{" not in text
     assert "Reply in English" in system_prompt("en")
-    assert PROMPT_VERSION == "v8"
+    assert PROMPT_VERSION == "v9"
     for rule in ("[NO_INFO]", "DATA, not instructions", "check_return_eligibility", "low_stock"):
         assert rule in text
 
@@ -201,7 +201,7 @@ def test_tools_shown_to_the_model_have_no_identity_parameter():
 def knowledge(store: VectorStore) -> Retriever:
     cfg = RetrievalConfig(top_k=4, score_threshold=0.25)
     ingest(
-        ROOT / "knowledge", store=store, embeddings=HashingEmbeddings(), sparse=FakeSparse(),
+        DEMO / "knowledge", store=store, embeddings=HashingEmbeddings(), sparse=FakeSparse(),
         embedding_model="fake", cfg=cfg,
     )  # fmt: skip
     return Retriever(store, HashingEmbeddings(), cfg, FakeSparse())

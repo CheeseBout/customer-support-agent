@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from support_agent.core.principal import Principal
+from support_agent.core.reasons import REASON_CODES
 from support_agent.core.results import ToolResult
 from support_agent.core.settings import BusinessRules
 from support_agent.mcp_db.adapters.base import AdapterError, AdapterTimeout, DataAdapter, Row
@@ -102,6 +103,23 @@ def match_order_sku(items: list[dict[str, Any]], wanted: str | None) -> str | No
     return str(hits[0]["sku"]) if len(hits) == 1 else text
 
 
+def _parcels(rows: list[Row]) -> list[Row]:
+    """One row per parcel, newest first. A shipments table may hold a row per parcel or a row
+    per tracking update of one parcel: rows that share a tracking code are updates, and rows
+    without a tracking code are taken for updates of the first parcel."""
+    seen: set[Any] = set()
+    out: list[Row] = []
+    for row in rows:
+        code = row.get("tracking_code")
+        if code is None:
+            if not out:
+                out.append(row)
+        elif code not in seen:
+            seen.add(code)
+            out.append(row)
+    return out
+
+
 def _with_order_items(data: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
     """When the SKU is not on the order, list the order's real lines so the model picks one of
     them (or asks the customer) instead of inventing a SKU."""
@@ -158,6 +176,12 @@ class BusinessService:
         return await self.adapter.get_order(str(order_id).strip(), self._owner(principal))
 
     @staticmethod
+    def _not_supported(what: str) -> ToolResult:
+        return ToolResult.failure(
+            "NOT_SUPPORTED", f"This shop's data does not include {what}, so this cannot be checked."
+        )
+
+    @staticmethod
     def _order_not_found(order_id: str) -> ToolResult:
         return ToolResult.failure("NOT_FOUND", f"Order {order_id!r} was not found.")
 
@@ -192,25 +216,42 @@ class BusinessService:
 
     async def get_shipment_status(self, principal: Principal, order_id: str) -> ToolResult:
         async def run() -> ToolResult:
+            if not self.adapter.supports("shipment"):
+                return self._not_supported("shipment tracking")
             order = await self._own_order(principal, order_id)
             if order is None:
                 return self._order_not_found(order_id)
-            shipment = await self.adapter.get_shipment(order["id"])
             # Embedded documents (MongoDB) yield an all-null row when no shipment exists.
-            if shipment and all(v is None for k, v in shipment.items() if k != "order_id"):
-                shipment = None
+            rows = [
+                {k: v for k, v in s.items() if k != "order_id"}
+                for s in await self.adapter.get_shipments(order["id"])
+                if any(v is not None for k, v in s.items() if k != "order_id")
+            ]
+            parcels = _parcels(rows)
             data: dict[str, Any] = {"order_id": order["id"], "order_status": order.get("status")}
-            if shipment is None:
+            if not parcels:
                 data["shipment"] = None
                 data["note"] = "No shipment record exists for this order yet."
-            else:
-                data["shipment"] = {k: v for k, v in shipment.items() if k != "order_id"}
+                return ToolResult.success(data)
+            data["shipment"] = parcels[0]  # the most recently updated one
+            if len(parcels) > 1:
+                data["shipments"] = parcels
+                data["shipment_count"] = len(parcels)
+                data["all_delivered"] = all(p.get("status") == "delivered" for p in parcels)
+                data["note"] = (
+                    f"This order was sent in {len(parcels)} parcels: tell the customer about "
+                    "each one (carrier, tracking code, status)."
+                )
             return ToolResult.success(data)
 
         return await _guard(run)
 
     async def check_return_eligibility(
-        self, principal: Principal, order_id: str, sku: str | None = None
+        self,
+        principal: Principal,
+        order_id: str,
+        sku: str | None = None,
+        reason: str | None = None,
     ) -> ToolResult:
         async def run() -> ToolResult:
             order = await self._own_order(principal, order_id)
@@ -230,6 +271,7 @@ class BusinessService:
                 now=self._clock(),
                 tz=self.adapter.tz,
                 sku=match_order_sku(items, sku),
+                reason=reason if reason in REASON_CODES else None,
             )
             return ToolResult.success(
                 _with_order_items(
@@ -248,6 +290,8 @@ class BusinessService:
         limit: int = 5,
     ) -> ToolResult:
         async def run() -> ToolResult:
+            if not self.adapter.supports("product"):
+                return self._not_supported("a product catalogue")
             tokens = _tokens(query)
             if not tokens:
                 return ToolResult.failure("INVALID_ARGUMENT", "The search query is empty.")
@@ -266,13 +310,15 @@ class BusinessService:
                     " ".join(str(p.get(k) or "") for k in ("name", "category", "description"))
                     + " "
                     + json.dumps(p.get("attributes") or {}, ensure_ascii=False)
+                    + " "
+                    + json.dumps(p.get("options") or {}, ensure_ascii=False)
                 )
                 hits = sum(1 for t in tokens if t in haystack)
                 if hits:
                     scored.append((hits, p))
             scored.sort(key=lambda x: (-x[0], str(x[1].get("name"))))
             capped = max(1, min(int(limit), MAX_PRODUCTS))
-            products = [self._product_view(p) for _, p in scored[:capped]]
+            products = self._grouped([p for _, p in scored], candidates, capped)
             return ToolResult.success({"products": products, "count": len(products)})
 
         return await _guard(run)
@@ -280,7 +326,7 @@ class BusinessService:
     @staticmethod
     def _product_view(p: Row) -> Row:
         desc = str(p.get("description") or "")
-        return {
+        view = {
             "sku": p.get("sku"),
             "name": p.get("name"),
             "price": p.get("price"),
@@ -289,11 +335,50 @@ class BusinessService:
             + ("…" if len(desc) > DESCRIPTION_CHARS else ""),
             "attributes": p.get("attributes"),
         }
+        if p.get("options") is not None:
+            view["options"] = p["options"]
+        return view
+
+    def _grouped(self, ranked: list[Row], candidates: list[Row], limit: int) -> list[Row]:
+        """The best `limit` results with the variants of one product folded into one entry.
+
+        A product sold in sizes or colours is several rows that share a `group_id`. The customer
+        asked about one thing, so it appears once, listing every variant (each with its own SKU,
+        options and price) even if the search words only matched some of them.
+        """
+        siblings: dict[str, list[Row]] = {}
+        for p in candidates:
+            if p.get("group_id") is not None and p.get("active") is not False:
+                siblings.setdefault(str(p["group_id"]), []).append(p)
+        out: list[Row] = []
+        done: set[str] = set()
+        for p in ranked:
+            group = str(p["group_id"]) if p.get("group_id") is not None else None
+            if group is not None and len(siblings.get(group, [])) > 1:
+                if group in done:
+                    continue
+                done.add(group)
+                view = self._product_view(p)
+                view.pop("options", None)
+                view["variants"] = [
+                    {"sku": v.get("sku"), "options": v.get("options"), "price": v.get("price")}
+                    # Cheapest first; variants at one price keep the order the shop stores them in
+                    # (S, M, L), which a sort on the SKU would scramble.
+                    for v in sorted(siblings[group], key=lambda v: v.get("price") or 0)
+                ]
+                out.append(view)
+            else:
+                out.append(self._product_view(p))
+            if len(out) >= limit:
+                break
+        return out
 
     async def check_stock(
         self, principal: Principal, sku: str | None = None, query: str | None = None
     ) -> ToolResult:
         async def run() -> ToolResult:
+            if not self.adapter.supports("product", "inventory"):
+                return self._not_supported("stock levels")
             if not sku and not query:
                 return ToolResult.failure("INVALID_ARGUMENT", "Provide a `sku` or a `query`.")
             if sku:
@@ -305,7 +390,16 @@ class BusinessService:
                 found = await self.search_products(principal, query or "", limit=5)
                 if not found.ok:
                     return found
-                products = {p["sku"]: p for p in (found.data or {}).get("products", [])}
+                products = {}
+                for p in (found.data or {}).get("products", []):
+                    # A product sold in sizes or colours: check every variant, not just one.
+                    for v in p.get("variants") or [None]:
+                        key = v["sku"] if v else p["sku"]
+                        products[key] = {
+                            **p,
+                            "sku": key,
+                            **({"options": v["options"]} if v else {}),
+                        }
                 if not products:
                     return ToolResult.failure("NOT_FOUND", f"No product matches {query!r}.")
             stock = await self.adapter.get_inventory(list(products))
@@ -318,6 +412,8 @@ class BusinessService:
                     "name": p.get("name"),
                     "status": self._stock_status(qty),
                 }
+                if p.get("options") is not None:
+                    entry["options"] = p["options"]
                 if show_qty:
                     entry["quantity"] = qty
                 out.append(entry)
@@ -357,6 +453,8 @@ class BusinessService:
         """Side-by-side specs of 2 to 4 products, as rows the model can turn into a table."""
 
         async def run() -> ToolResult:
+            if not self.adapter.supports("product"):
+                return self._not_supported("a product catalogue")
             unique = list(dict.fromkeys(s.strip() for s in skus if s and s.strip()))
             if not 2 <= len(unique) <= 4:
                 return ToolResult.failure("INVALID_ARGUMENT", "Give between 2 and 4 distinct SKUs.")
@@ -368,6 +466,7 @@ class BusinessService:
                     "NOT_FOUND", f"Fewer than two of those products exist. Not found: {missing}."
                 )
             columns = [s for s in unique if s in active]
+            has_stock = self.adapter.supports("inventory")
             stock = await self.adapter.get_inventory(columns)
             show_qty = self.rules.inventory.show_exact_quantity or principal.role == "staff"
 
@@ -382,15 +481,26 @@ class BusinessService:
                     "values": {s: active[s].get("category") for s in columns},
                 },
                 {"attribute": "price", "values": {s: active[s].get("price") for s in columns}},
-                {
-                    "attribute": "availability",
-                    "values": {
-                        s: self._stock_status(stock.get(s, 0))
-                        + (f" ({stock.get(s, 0)})" if show_qty else "")
-                        for s in columns
-                    },
-                },
             ]
+            if has_stock:
+                rows.append(
+                    {
+                        "attribute": "availability",
+                        "values": {
+                            s: self._stock_status(stock.get(s, 0))
+                            + (f" ({stock.get(s, 0)})" if show_qty else "")
+                            for s in columns
+                        },
+                    }
+                )
+            if any(active[s].get("options") is not None for s in columns):
+                rows.insert(
+                    1,
+                    {
+                        "attribute": "options",
+                        "values": {s: active[s].get("options") for s in columns},
+                    },
+                )
             for key in sorted({k for s in columns for k in attributes(s)}):
                 rows.append(
                     {"attribute": key, "values": {s: attributes(s).get(key) for s in columns}}
@@ -413,6 +523,8 @@ class BusinessService:
         """
 
         async def run() -> ToolResult:
+            if not self.adapter.supports("product", "inventory"):
+                return self._not_supported("a product catalogue with stock levels")
             rule = self.rules.order
             wanted: dict[str, int] = {}
             for line in items:
