@@ -58,6 +58,7 @@ curl -s localhost:8000/v1/chat -H "Authorization: Bearer $TOKEN" -H 'content-typ
 | GET | `/v1/admin/drafts/{id}` | staff | One request, including the customer id |
 | POST | `/v1/admin/drafts/{id}/approve` | staff | Optional `note` |
 | POST | `/v1/admin/drafts/{id}/reject` | staff | `note` required; the customer sees it |
+| GET | `/v1/admin/events` | staff | Webhook deliveries (`state`: pending, delivered, failed; `limit`). `configured` is false without `WEBHOOK_URL` |
 | POST | `/v1/admin/ingest` | staff | Reload `knowledge/` (`full` rebuilds the index) |
 | GET | `/health` | public | Liveness |
 | GET | `/ready` | public | `200` when the index has documents and the model passed its capability check; `503` otherwise, with the reason per check |

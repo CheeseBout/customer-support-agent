@@ -177,7 +177,7 @@ model can explain; if nothing at all came back, the outcome is `error`.
 
 ## Prompts
 
-`src/support_agent/agent/prompts/v8/system.md` is the system prompt (earlier versions are recorded in `prompts/__init__.py`). The version is attached to
+`src/support_agent/agent/prompts/v9/system.md` is the system prompt (earlier versions are recorded in `prompts/__init__.py`). The version is attached to
 every trace and report, so a quality change can be traced to a prompt change. Add a new folder
 and bump `PROMPT_VERSION` when you change it, and re-run `support-agent eval`.
 

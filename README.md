@@ -25,6 +25,7 @@ MySQL and MongoDB) runs in Docker.
 | Memory and workspace | Built and tested. Conversation summaries, optional saved preferences, per-session files. A multi-agent split is deliberately not built: nothing shows it would beat the single agent. |
 | Guardrails | Built and tested. Input screening, rate limit, output checks, an English and Vietnamese red-team set. Phrase-based: see [docs/agent.md](docs/agent.md). |
 | HTTP API | Built and tested. JWT auth, chat as JSON or SSE, sessions, requests, staff review, Docker. See [docs/api.md](docs/api.md). |
+| Fitting it to your shop | Built and covered by unit tests, **not measured with an LLM evaluation**: a mapping drafted from your database (`introspect-db`), optional data entities and tools that switch themselves off, parcels and product variants, return windows by category and reason, shop name and contact details, threshold calibration on your own documents, handoff to staff, and a signed webhook for decisions. The evaluation results below were measured on the demo shop with prompt v8; the prompt is now v9 (same instructions, plus the shop profile and a note of what the shop does not offer). Re-run the evaluation on your own shop before relying on it. |
 | Evaluation in CI | Partly. CI runs lint, type checks and the unit tests; the LLM evaluation is run by hand. Tracing, thresholds and `--fail-under` exist; a four-provider comparison does not. |
 
 All evaluation figures in this README were measured on the bundled demo shop and its sample
@@ -60,6 +61,15 @@ stands in for the identity a JWT carries on the API.
   as a product comparison table.
 * **Guardrails**: prompt-injection screening, per-user rate limit, masking of contact details the
   customer's own data does not contain, withdrawal of false refund promises and prompt leaks.
+* **Built for your shop, not just the demo.** Only `customer`, `order` and `order_item` are
+  required in the database mapping; leave out stock, catalogue or shipments and the tools that need
+  them are simply not offered. `support-agent introspect-db` drafts the mapping from your
+  schema. Return windows can differ by category and by reason; one order can be several parcels;
+  products can have variants; the shop's name, contact details and currency are configuration.
+  The demo lives in [`examples/demo-shop/`](examples/demo-shop/).
+* **Decisions leave the building.** A customer who needs a person is handed to your staff through
+  the same confirm-then-review flow as a refund, and each request and decision can be sent to
+  your own system as a signed, retried webhook.
 * **Evaluation**: a 79-question bilingual dataset, retrieval/routing/answer/safety metrics,
   threshold calibration, optional LLM judge and Langfuse tracing.
 
@@ -78,7 +88,8 @@ support-agent init                                      # creates .env; add your
 docker compose --profile demo-db up -d                  # demo PostgreSQL (+ optional Qdrant server;
                                                         # by default Qdrant runs embedded in ./data/qdrant)
 
-# point the agent at the demo database with its READ-ONLY account (put these in .env)
+# point the agent at the demo shop and its database with the READ-ONLY account (put in .env)
+#   APP_CONFIG_PATH=./examples/demo-shop/app.yaml      # demo documents, mapping and evaluation data
 #   BUSINESS_DB_TYPE=postgres
 #   BUSINESS_DB_URL=postgresql://support_ro:support_ro@localhost:5432/shop
 # seeding needs the owner account, which the agent itself never uses:
@@ -111,15 +122,18 @@ reproducible: `1234` is returnable, `1235` is past the window, `1239` is a gift 
 |---|---|
 | `init` | Create `.env` and local directories |
 | `ingest [--full] [--dir]` | Load policy documents into Qdrant; unchanged files are skipped |
-| `ask QUESTION [--user] [--lang] [--json] [--no-tools] [--session ID] [--engine agent\|pipeline]` | Ask as an authenticated customer; the answer streams. `--session` continues a conversation |
-| `resume --session ID --id CONFIRMATION --decision approve\|reject\|edit [--set field=value]` | Answer a confirmation that `ask` left open (works after a restart) |
-| `drafts init\|list\|show\|approve\|reject\|cancel` | Staff side of customer requests. `drafts init --url` creates `support_drafts`; `reject` needs `--note` |
-| `chat [--user] [--lang] [--no-tools] [--session ID]` | Talk over several turns; the conversation is saved |
-| `seed-demo [--url] [--reset]` | Create the demo shop database (needs a write-capable account) |
+| `introspect-db [--write FILE] [--schema S] [--force]` | Draft `schema_mapping.yaml` by reading the structure of your database (no customer data), with every guess marked |
+| `drafts deliver / events / retry-events` | Send queued events to your webhook now; list them; send the failed ones again |
+| `calibrate QUESTIONS` | Find the relevance threshold for your own documents from a list of answerable and unanswerable questions (no API key) |
+| `ask QUESTION [--user] [--role customer\|staff] [--lang] [--json] [--no-tools] [--session ID] [--engine agent\|pipeline]` | Ask as an authenticated customer; the answer streams. `--session` continues a conversation |
+| `resume --session ID --id CONFIRMATION --decision approve\|reject\|edit [--user] [--set field=value]` | Answer a confirmation that `ask` left open (works after a restart) |
+| `drafts init\|list\|show\|approve\|reject\|cancel` | Staff side of customer requests. `drafts init --url` creates `support_drafts`; `reject` needs `--note`; `--staff` sets the reviewer id and `--url` the drafts database (default `DRAFTS_DB_URL`) |
+| `chat [--user] [--role customer\|staff] [--lang] [--no-tools] [--session ID]` | Talk over several turns; the conversation is saved |
+| `seed-demo [--url] [--reset\|--no-reset]` | Create the demo shop database (needs a write-capable account); by default it drops and recreates the demo tables |
 | `validate-mapping` | Check the schema mapping against the live database |
 | `serve [--host] [--port]` | Run the HTTP API. Refuses to start without a valid JWT setting |
 | `check [--skip-llm]` | Verify configuration, Qdrant, database and the model's capabilities |
-| `eval [--engine agent\|pipeline] [--offline] [--subset ci] [--judge] [--fail-under] [--compare REPORT.json] [--concurrency N] [--run-timeout S]` | Evaluate and write a report. The agent is compared with the fixed-pipeline baseline; `--fail-under` also fails on a regression |
+| `eval [--engine agent\|pipeline] [--offline] [--dataset FILE] [--subset ci] [--limit N] [--name NAME] [--judge] [--fail-under] [--compare REPORT.json] [--rescore REPORT.json] [--concurrency N] [--run-timeout S]` | Evaluate and write a report. The agent is compared with the fixed-pipeline baseline; `--fail-under` also fails on a regression; `--rescore` grades a saved report again with the current dataset and calls no model |
 
 ## Configuration
 
@@ -143,6 +157,10 @@ Secrets and endpoints come from the environment (`.env`, see `.env.example`); tu
 | `JWT_AUDIENCE` `JWT_ISSUER` `JWT_CUSTOMER_CLAIM` `JWT_ROLE_CLAIM` | Optional claim checks and names (defaults `sub`, `role`) |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to call the API (empty = off) |
 | `SESSIONS_DB_URL` `WORKSPACE_DIR` | Session index, feedback and saved preferences (SQLite); per-session files |
+| `DRAFTS_DB_URL` | Account that may write only `support_drafts` and `support_draft_events`; without it the agent cannot submit requests (see [DEPLOY.md](DEPLOY.md)) |
+| `WEBHOOK_URL` `WEBHOOK_SECRET` | Send each request and decision to your system as a signed JSON POST; both are needed together |
+| `MCP_PRINCIPAL_SECRET` | Signs the caller identity passed to the MCP server; empty = a random secret per process |
+| `LOG_LEVEL` | Logging level (default `INFO`) |
 
 Default models: `gpt-4o-mini`, `claude-haiku-4-5`, `gemini-3.5-flash-lite`, and a free OpenRouter
 model that supports tools. Check these IDs against your provider before relying on them; free
@@ -158,7 +176,7 @@ again. Set `LLM_REQUESTS_PER_MINUTE` below your limit, keep `llm.max_retries` lo
 call fails with 429 until it resets, which is why a long run can look hung.
 
 Business rules (`return`, `refund`, `warranty`, `inventory`) are in `config/app.yaml` and are the
-single source of truth for decisions. The policy documents in `knowledge/` explain and cite those
+single source of truth for decisions. The policy documents in `knowledge/` (the demo's are in `examples/demo-shop/knowledge/`) explain and cite those
 rules, so keep the two consistent when you change either.
 
 ## Security model
@@ -194,16 +212,17 @@ support-agent eval --judge --fail-under
 support-agent eval --subset ci        # ~30 samples for CI
 ```
 
-Reports are written to `evals/reports/`. The agent evaluation uses a throwaway drafts store, so
+Reports are written to the directory set by `evals.report_dir` (the demo's go to
+`examples/demo-shop/evals/reports/`). The agent evaluation uses a throwaway drafts store, so
 it never touches real requests.
 
 ### After-sales dataset
 
-`evals/datasets/aftersales.jsonl` (63 samples, 29 Vietnamese / 34 English, 19 in the `ci` subset)
+`examples/demo-shop/evals/datasets/aftersales.jsonl` (63 samples, 29 Vietnamese / 34 English, 19 in the `ci` subset)
 covers requests, not just answers:
 
 ```bash
-support-agent eval --engine agent --dataset evals/datasets/aftersales.jsonl --subset ci
+support-agent eval --engine agent --dataset examples/demo-shop/evals/datasets/aftersales.jsonl --subset ci
 ```
 
 | Group | What it checks |
@@ -219,7 +238,7 @@ Samples that create drafts run last, one at a time, in file order. Every expecte
 refusal in the file is checked against the seeded shop by `tests/test_aftersales_dataset.py`, so
 the dataset cannot drift from the rules. The `business` metric now also covers this: the right
 confirmation and the right drafts. The offline baseline on the sample corpus with the
-default embedding model (see [`evals/reports/baseline-offline.md`](evals/reports/baseline-offline.md)):
+default embedding model (see [`baseline-offline.md`](examples/demo-shop/evals/reports/baseline-offline.md)):
 
 | | |
 |---|---|
@@ -246,12 +265,13 @@ amount or approved a request. The Haiku safety figure is one sample, `aft-vi-026
 10 million refund): the agent refuses the amount and asks whether to go ahead instead of proposing the request,
 which the dataset counts as a miss. A Haiku run costs a few tens of cents at its list price.
 
-Reports: `evals/reports/aftersales-v8-gemini.md`, `evals/reports/aftersales-v8b-haiku55.md`.
+Reports: `examples/demo-shop/evals/reports/aftersales-v8-gemini.md`,
+`examples/demo-shop/evals/reports/aftersales-v8b-haiku55.md`.
 
 ### Full baseline
 
 Full pipeline on all 79 samples with `gemini-3.5-flash-lite` as both assistant and judge
-([`evals/reports/baseline-full.md`](evals/reports/baseline-full.md)):
+([`baseline-full.md`](examples/demo-shop/evals/reports/baseline-full.md)):
 
 | Metric | Result | Threshold |
 |---|---|---|
@@ -266,7 +286,7 @@ Read these numbers with care:
 
 * **It is a small, hand-written set (79 questions)** and its expectations were refined after the
   first run. The first run scored answer 83.5%, business 90% and safety 72.7%
-  ([`baseline-full-run1.md`](evals/reports/baseline-full-run1.md)). It exposed one real defect (the
+  ([`baseline-full-run1.md`](examples/demo-shop/evals/reports/baseline-full-run1.md)). It exposed one real defect (the
   model refused "is X in stock?" when the stock tool said `low_stock`, fixed in the prompt) and
   several flaws in the evaluation itself (an over-strict judge, injection traps that never
   reached the model, a language check fooled by Vietnamese product names). 100% therefore means
@@ -288,7 +308,7 @@ named after the run (a fresh session per run), tagged `eval`, type and language,
 ## Tests
 
 ```bash
-pytest                      # ~880 unit tests, offline, no API keys
+pytest                      # ~1100 unit tests, offline, no API keys
 pytest -m integration       # PostgreSQL, MySQL, MongoDB and the Postgres checkpointer, in Docker
 ruff check . && ruff format --check . && mypy src
 ```
@@ -333,8 +353,17 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
 * The API runs as one process (embedded Qdrant, the MCP subprocess and the rate limiter are per
   process). For several instances use a Qdrant server, a shared checkpoint database and an
   external rate limiter.
-* Requests need a drafts account (`DRAFTS_DB_URL`) that may write only `support_drafts`. Create the table with `support-agent drafts init --url <owner url>`. Without it the agent explains that it cannot submit requests.
+* Requests need a drafts account (`DRAFTS_DB_URL`) that may write only `support_drafts` and `support_draft_events`. Create the tables with `support-agent drafts init --url <owner url>`. Without it the agent explains that it cannot submit requests.
 * Approved drafts are only recorded: nothing writes to the shop's own tables. Fulfilment is staff work.
+  The webhook tells your system about each decision; it is at-least-once, so your side must ignore
+  a repeated event id.
+* `introspect-db` is a set of name lists and rules, not a model: it recognises English and
+  Vietnamese schemas and says where it is unsure, but a schema with unusual names or with the
+  order id and SKU only reachable through joins needs a database view and a hand edit. Product
+  variants need a view that joins the parent product's name to each variant.
+* There is no adapter for a shop platform's own API (Shopify, WooCommerce, ...): the data layer
+  reads a SQL or MongoDB database. Expose the platform's data as views or a replica.
+* Guest checkout is not supported: every customer lookup needs the customer id in the token.
 * Scanned (image-only) PDFs are not supported; there is no OCR.
 * The shipped evaluation datasets, thresholds and results describe the demo shop only. A real
   shop needs its own dataset and a retrieval threshold calibrated on its own documents.
@@ -349,8 +378,10 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
 
 ```
 DEPLOY.md          set up for your own shop, run and integrate
-config/            app.yaml, schema_mapping.yaml, examples/ for MySQL, SQLite, MongoDB
-knowledge/         sample bilingual policy documents (md, docx)
+config/            app.yaml, schema_mapping.yaml (a template to fill in for your shop)
+knowledge/         your policy documents (empty in the repository)
+examples/demo-shop/  the bundled demo: app.yaml, knowledge/, mapping for each database,
+                   evals/ (datasets and the reports quoted below)
 src/support_agent/
   core/            settings, logging, i18n, identity (principal)
   llm/             provider factory, capability check, structured output, usage
@@ -365,7 +396,7 @@ src/support_agent/
   evals/           dataset, metrics, judge, runner, reports
   observability/   optional Langfuse
   seed/            demo data
-evals/             dataset and reports
+evals/             your own evaluation datasets and reports (empty in the repository)
 docs/              schema-mapping.md, agent.md, api.md
 scripts/           sql/: SELECT-only database accounts; make_sample_docx.py
 tests/             unit tests; tests/integration needs Docker

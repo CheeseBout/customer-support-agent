@@ -129,17 +129,39 @@ URL forms: `postgresql://…`, `mysql://…`, `sqlite:///./path/shop.db`, and
 
 ### 5.3 Write the schema mapping
 
-`config/schema_mapping.yaml` maps seven standard entities to your tables or collections:
-`customer`, `order`, `order_item`, `product`, `inventory`, `shipment`, and optionally
-`return_request`. Start from the closest example in `config/examples/` (SQLite, MySQL, MongoDB)
-or the default file, then change only the right-hand sides. The full guide, with the list of
-required fields, is [docs/schema-mapping.md](docs/schema-mapping.md).
+`config/schema_mapping.yaml` maps standard entities to your tables or collections. Three are
+required: `customer`, `order` and `order_item`. The others are optional, and each one you leave
+out switches off only what needs it: `product` and `inventory` (product search, comparison, stock
+checks, new orders), `shipment` (tracking) and `return_request` (blocks a second return of the
+same item). The file in `config/` is a template with placeholder names; working examples for
+PostgreSQL, MySQL, SQLite and MongoDB are in `examples/demo-shop/config/`. Change only the
+right-hand sides. The full guide, with the list of fields, is
+[docs/schema-mapping.md](docs/schema-mapping.md).
+
+You do not have to start from a blank page. With `BUSINESS_DB_URL` set, let the tool read your
+database and draft the file:
+
+```bash
+support-agent introspect-db                                  # show the draft and what it found
+support-agent introspect-db --write config/schema_mapping.yaml
+support-agent validate-mapping
+```
+
+It reads table and column names, declared foreign keys and the distinct values of the status
+columns (no customer data), and matches them to the entities using English and Vietnamese name
+lists (`src/support_agent/mcp_db/vocabulary.yaml`, which you can extend). Treat the result as a
+draft: a line ending in `# check` is a guess, `TODO_...` is a required field it could not find,
+and a status value it does not recognise is left commented out for you to decide. If your order
+lines point at a surrogate `products.id` rather than the SKU, it tells you to create a view,
+because a mapping has no joins. Status values are taken from the data as it is today; add any
+status your system can set later.
 
 Things that commonly go wrong:
 
 * **Dialect:** `dialect:` in the mapping must equal `BUSINESS_DB_TYPE`.
 * **Statuses:** list every status value your orders use under `order.status_map`, mapped to
-  `pending | processing | shipping | delivered | cancelled`. A missing value would silently make
+  `pending_payment | processing | shipping | partially_shipped | delivered | cancelled |
+  returned | refunded | on_hold`. A missing value would silently make
   those orders non-returnable, so the validator fails on it.
 * **Several tables:** the mapping has no joins. Create a database view that exposes the columns
   in one place and point `table` at the view.
@@ -158,8 +180,12 @@ support-agent validate-mapping
 
 ## 6. Set up customer requests (drafts)
 
-Refunds, returns, warranty claims and orders are saved in a table called `support_drafts`. Use an
-account that may write **only** that table, never the read-only shop account.
+Refunds, returns, warranty claims, orders and requests to talk to a person are saved in a table
+called `support_drafts`; events waiting for your webhook are kept in `support_draft_events` next
+to it. Use an account that may write **only** these two tables, never the read-only shop account.
+
+> **Upgrading?** `support_draft_events` is new. Run `support-agent drafts init --url <owner url>`
+> once: it creates the missing table and leaves `support_drafts` as it is.
 
 ```ini
 # simplest start: a local SQLite file
@@ -189,11 +215,113 @@ support-agent drafts reject <id> --note "reason the customer will see"
 ```
 
 Approving only records the decision. Refunding money, creating the order and so on remain your
-staff's or your system's job.
+staff's or your system's job. To have your own system told about each decision, use the
+[webhook](#tell-your-system-about-decisions-the-webhook).
+
+**Customers who need a person.** A `handoff` request is how the assistant passes a customer to your
+staff: when the customer asks for a person, or the assistant cannot resolve the problem, it asks
+the customer to confirm and creates a request of type `handoff` with what they need, in their
+words, the order if there is one, and a contact only if they offered one. It appears in the same
+queue (`support-agent drafts list --type handoff`). Approving it means "a person took it"; reject
+it with a note if it needs nothing. It is on by default; remove `handoff` from
+`capabilities.request_types` to turn it off. Set `shop.contact` in `config/app.yaml` so the
+assistant can also give customers your opening hours and contact details.
+
+### Tell your system about decisions (the webhook)
+
+Set both in `.env` and your system receives a signed `POST` whenever a request is made or decided:
+
+```
+WEBHOOK_URL=https://shop.example.com/hooks/support
+WEBHOOK_SECRET=a-long-random-string
+```
+
+Which events, and the retry policy, are under `connectors.webhook`. The section is not in the
+shipped `config/app.yaml`, so add it there only to change a default:
+
+```yaml
+connectors:
+  webhook:
+    events: [draft.created, draft.approved, draft.rejected]   # also: draft.cancelled
+    max_attempts: 8          # then the event is marked failed until someone retries it
+    backoff_seconds: 30      # doubled after every failed attempt, at most an hour
+    poll_seconds: 15         # how often the server looks for events to send
+    reconcile_hours: 48      # how far back to look for a decision that was never queued
+```
+
+The body is JSON:
+
+```json
+{
+  "id": "6f1c...:approved",
+  "event": "draft.approved",
+  "created_at": "2026-10-09T10:15:00+00:00",
+  "draft": {
+    "id": "6f1c...",
+    "type": "refund",
+    "status": "approved",
+    "customer_id": "u_100",
+    "order_id": "1234",
+    "payload": {"refundable_amount": 350000, "items": [{"sku": "EAR-BT20", "qty": 1}], "...": "..."},
+    "priority_review": false,
+    "reviewed_by": "s_9",
+    "reviewed_at": "2026-10-09T10:15:00+00:00",
+    "review_note": "Refund sent",
+    "created_at": "2026-10-09T09:58:00+00:00",
+    "updated_at": "2026-10-09T10:15:00+00:00"
+  }
+}
+```
+
+Headers: `X-Support-Event`, `X-Support-Event-Id` (the `id` above) and
+`X-Support-Signature: t=<unix time>,v1=<hex>`, where `v1` is the HMAC-SHA256 of
+`"<t>." + <raw body>` with your secret. **Verify it before trusting the request**, and answer with
+any `2xx`. A reference check:
+
+```python
+import hashlib
+import hmac
+import time
+
+
+def valid(secret: str, header: str, body: bytes, tolerance: int = 300) -> bool:
+    parts = dict(item.split("=", 1) for item in header.split(","))
+    if abs(time.time() - int(parts["t"])) > tolerance:
+        return False  # too old: a replay
+    expected = hmac.new(secret.encode(), parts["t"].encode() + b"." + body, hashlib.sha256)
+    return hmac.compare_digest(expected.hexdigest(), parts["v1"])
+```
+
+How it behaves, so your side can rely on it:
+
+* **Not lost.** The event is saved in the drafts database before it is sent. If your system is
+  down it is retried with growing waits (30 s, 1 min, 2 min, ... up to an hour) for
+  `max_attempts` tries, then marked `failed`. A decision saved but never queued (a crash in
+  between) is found by a check every 10 minutes and queued again.
+* **At least once.** The same event can arrive twice; use the event `id` to ignore a repeat.
+* **In order per request.** `draft.created` of one request is sent before its
+  `draft.approved`, and a later event waits while an earlier one is being retried. Events of
+  different requests are independent.
+* **Permanent refusals are not retried.** A `4xx` other than 408/425/429 (a wrong secret, a wrong
+  URL) marks the event `failed` at once, so a misconfiguration is visible instead of hammering you.
+* **No redirects** are followed, and the response body is never logged.
+
+Watch and repair it:
+
+```bash
+support-agent drafts events --state failed     # what could not be delivered, and why
+support-agent drafts retry-events              # after fixing the receiving side
+support-agent drafts deliver                   # send what is due now
+```
+
+`GET /v1/admin/events` (staff) shows the same. The server delivers by itself every
+`poll_seconds` while it runs; the `drafts approve/reject/cancel` commands deliver right after
+the decision.
 
 ## 7. Add your policies
 
-1. Remove the sample documents from `knowledge/` and put your own there: returns, shipping,
+1. Put your own documents in `knowledge/` (it is empty in the repository; the demo's sample
+   documents live in `examples/demo-shop/knowledge/`): returns, shipping,
    warranty, payment, FAQs. Subfolders are fine. Use `.md`, `.pdf` or `.docx`. Scanned PDFs
    without text are not supported.
 2. Write clear headings and short sections: answers cite the document and section.
@@ -212,6 +340,28 @@ Re-run `ingest` whenever a document changes. Deleted files are removed from the 
 decide a case (return days, refund limit, warranty months) come from `config/app.yaml` (step 8).
 If your document says 14 days and the config says 7, the agent will quote 14 and decide with 7.
 
+### Choose what the assistant does
+
+The assistant offers only what your data supports and your settings allow. It is never shown a
+tool that would only fail, and the prompt tells it what this shop does not offer so it does not
+promise it.
+
+* **By data.** Leave `product`, `inventory`, `shipment` or `return_request` out of the mapping and
+  the tools that need them are not registered (see the table in
+  [docs/schema-mapping.md](docs/schema-mapping.md)). Skills that need them (placing an order,
+  comparing products) are not offered either.
+* **By setting.** In `config/app.yaml`:
+
+  ```yaml
+  capabilities:
+    disabled_tools: [compare_products]            # any of the tool names; a typo is an error
+    request_types: [refund, return, warranty]     # no orders through the chat
+  ```
+
+  `request_types` lists what a customer may ask the assistant to prepare for confirmation:
+  `order`, `refund`, `return`, `warranty`. An empty list turns requests off altogether. An
+  `order` also needs `product` and `inventory` in the mapping, because it is priced from them.
+
 ## 8. Set your business rules
 
 Open `config/app.yaml` and edit `business_rules`:
@@ -219,15 +369,41 @@ Open `config/app.yaml` and edit `business_rules`:
 | Setting | Meaning |
 |---|---|
 | `timezone` | Used to count days and read timestamps. Default `Asia/Ho_Chi_Minh` |
+| `currency` | ISO code of the shop's currency, used for refund and order amounts. Default `VND` |
 | `return.window_days` | Days a customer may return an item |
 | `return.window_basis` | Count from `delivered_at` or `created_at` |
 | `return.allowed_order_statuses` | Statuses that can be returned (default `[delivered]`) |
 | `return.excluded_categories` | Product categories that cannot be returned (for example `gift_card`) |
+| `return.windows` | Different windows for some categories or reasons (see below). The first entry that matches an item wins; `window_days` applies when none does |
 | `refund.auto_review_max_amount` | Refunds above this are flagged for priority review |
 | `warranty.default_months`, `warranty.by_category` | Warranty period overall and per category |
 | `inventory.show_exact_quantity` | `false` shows only in stock / low / out of stock |
 | `inventory.low_stock_threshold` | Quantity below which stock is reported as "low" |
-| `order.*` | Limits for orders the agent may prepare: currency, quantity per line, lines, payment methods, cash-on-delivery cap |
+| `order.*` | Limits for orders the agent may prepare: quantity per line, lines, payment methods, cash-on-delivery cap. They use `currency` above unless `order.currency` is set |
+
+**Different windows for different items.** Many shops give a faulty item longer than a change of
+mind, or a category its own period. List them under `return.windows`:
+
+```yaml
+return:
+  window_days: 7                       # everything else
+  windows:
+    - reasons: [defective, wrong_item, not_as_described, damaged_in_transit]
+      days: 30
+    - categories: [fashion]
+      days: 14
+```
+
+An entry with `reasons` applies once the customer has said why. Until then the answer uses the
+ordinary window, and the result lists the longer ones (`reason_windows`) so the agent can ask
+"is the item faulty?" instead of refusing. Each item then has its own deadline, and an item past
+its window is left out while the rest of the order can still go through. Reason codes:
+`defective`, `wrong_item`, `not_as_described`, `damaged_in_transit`, `changed_mind`, `other`.
+
+**Who the agent speaks for.** The `shop` section gives the shop's name, a one-line description
+and how to reach a person (email, phone, opening hours, help page). The agent names the shop and
+gives exactly those contact details when a customer asks for a person or it cannot help; it is
+told never to give any other.
 
 Other useful settings:
 
@@ -306,7 +482,7 @@ What to know:
   `http://qdrant:6333` (compose sets it). Your database must be reachable **from the container**:
   `localhost` in `BUSINESS_DB_URL` would mean the container itself. On Docker Desktop use
   `host.docker.internal` for a database on your computer.
-* `config/` and `knowledge/` are copied into the image when it is built. After changing them,
+* `config/`, `knowledge/` and `examples/` are copied into the image when it is built. After changing them,
   rebuild: `docker compose up -d --build`, then run `ingest` again if documents changed. To edit
   without rebuilding, add a `docker-compose.override.yml` that mounts them:
 
@@ -485,7 +661,7 @@ can be matched to the exact run. Without these, nothing is sent anywhere.
 
 - [ ] `.env` is not in version control and is readable only by the service user.
 - [ ] The database account is `SELECT`-only (try an `UPDATE` and confirm it fails).
-- [ ] The drafts account can write only `support_drafts`.
+- [ ] The drafts account can write only `support_drafts` and `support_draft_events`.
 - [ ] `JWT_SECRET` is random and at least 32 bytes, or you use RS256 with a JWKS URL; set
       `JWT_AUDIENCE` and `JWT_ISSUER` if your identity provider supports them.
 - [ ] Tokens are issued by your backend, expire quickly, and the customer id in them matches your
@@ -518,11 +694,18 @@ The figures in the README describe the demo shop. For yours:
    default 0.80) was tuned on the sample corpus and must be recalibrated:
 
    ```bash
-   support-agent eval --offline        # no API key; read the "Score-threshold calibration" section
+   support-agent calibrate evals/calibration.yaml   # no API key; run `ingest` first
    ```
-2. **Write your own questions.** Copy the structure of `evals/datasets/baseline.jsonl`, using your
-   own order ids, customers and policies, and point `evals.dataset` in `config/app.yaml` (or
-   `--dataset`) at it. Include cases that must be refused, such as someone else's order.
+
+   `calibrate` takes a short file listing questions your documents answer and questions they do
+   not (other topics, small talk, policies you do not have), in the form of
+   `examples/demo-shop/evals/calibration.yaml`: `- {q: "...", answerable: true}`. Aim for at
+   least 10 of each. It prints how well the current threshold separates them and the value to put
+   under `retrieval.score_threshold`. It works for any embedding model, whatever range its
+   scores fall in. (`eval --offline` runs the same analysis over a full evaluation dataset.)
+2. **Write your own questions.** Copy the structure of
+   `examples/demo-shop/evals/datasets/baseline.jsonl` to `evals/datasets/shop.jsonl` (the default
+   `evals.dataset`), using your own order ids, customers and policies, or pass `--dataset`. Include cases that must be refused, such as someone else's order.
 3. **Run it** with a model key and read the report in `evals/reports/`:
 
    ```bash
@@ -553,7 +736,7 @@ A full run makes several hundred model calls: mind your plan's quota.
 | `504 TIMEOUT` | The turn exceeded `agent.run_timeout_seconds` |
 | Index errors when a second process starts | The embedded vector store allows one process. Use a Qdrant server (`QDRANT_URL`) |
 | `CHECKPOINT_URL=postgresql://…` fails on Windows | PostgreSQL conversation storage works on Linux only. Use the default SQLite checkpoints |
-| Config changes have no effect in Docker | `config/` and `knowledge/` are baked into the image: rebuild, or mount them ([10.2](#102-with-docker-compose)) |
+| Config changes have no effect in Docker | `config/`, `knowledge/` and `examples/` are baked into the image: rebuild, or mount them ([10.2](#102-with-docker-compose)) |
 | Streaming arrives all at once behind a proxy | Disable response buffering for the API |
 
 Every API error includes a `request_id`, repeated in the `X-Request-ID` response header. Quote it
