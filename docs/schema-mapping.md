@@ -31,6 +31,7 @@ asking and refuses to overwrite a file you have edited unless you add `--force`.
 | `inventory` (optional entity) | `sku`, `quantity` | |
 | `shipment` (optional entity) | `order_id`, `status` | `carrier`, `tracking_code`, `updated_at`, `eta` |
 | `return_request` (optional entity) | `id`, `order_id`, `status` | `created_at`, `sku` |
+| `exchange_request` (optional entity) | `id`, `order_id`, `status` | `created_at`, `sku` |
 
 What an optional entity switches off when you leave it out:
 
@@ -40,11 +41,14 @@ What an optional entity switches off when you leave it out:
 | `inventory` | stock checks, new orders (a comparison simply has no availability row) |
 | `shipment` | shipment status |
 | `return_request` | nothing; only the "already requested" check cannot fire |
+| `exchange_request` | nothing; the limit of exchanges per order then counts only those made through the assistant (and only matters if the shop sets `business_rules.exchange`) |
 
 Order lookups, return and warranty checks work with the three required entities alone.
 
 `return_request` lets the return rule see requests that already exist for an order. Without it,
-the "already requested" check cannot fire.
+the "already requested" check cannot fire. `exchange_request` does the same for exchanges: the rows
+of one order are counted (rows that share an `id` count once, `rejected` and `cancelled` ones not)
+against `business_rules.exchange.max_per_order`.
 
 ## Several parcels, several variants
 

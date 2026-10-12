@@ -21,11 +21,11 @@ MySQL and MongoDB) runs in Docker.
 |---|---|
 | Policy Q&A and personal data lookup | Built, tested and evaluated on the bundled demo shop (see [Evaluation](#evaluation)). |
 | Agent loop | Built. On the full 79-sample set with the judge the agent scores 100% on every metric and does not fall below the fixed-pipeline baseline. |
-| Requests with human confirmation | Built, tested and measured on the 63-sample after-sales set (refund, return, warranty, order drafts; confirm / edit / reject; staff review CLI). Answer 92-98% and safety 90-100% depending on the model; business correctness is 94-98%, short of the 100% target. See [After-sales results](#after-sales-results). |
+| Requests with human confirmation | Built, tested and measured on the 63-sample after-sales set (refund, return, warranty, order drafts; the exchange request added later is covered by unit tests only; confirm / edit / reject; staff review CLI). Answer 92-98% and safety 90-100% depending on the model; business correctness is 94-98%, short of the 100% target. See [After-sales results](#after-sales-results). |
 | Memory and workspace | Built and tested. Conversation summaries, optional saved preferences, per-session files. A multi-agent split is deliberately not built: nothing shows it would beat the single agent. |
 | Guardrails | Built and tested. Input screening, rate limit, output checks, an English and Vietnamese red-team set. Phrase-based: see [docs/agent.md](docs/agent.md). |
 | HTTP API | Built and tested. JWT auth, chat as JSON or SSE, sessions, requests, staff review, Docker. See [docs/api.md](docs/api.md). |
-| Fitting it to your shop | Built and covered by unit tests, **not measured with an LLM evaluation**: a mapping drafted from your database (`introspect-db`), optional data entities and tools that switch themselves off, parcels and product variants, return windows by category and reason, shop name and contact details, threshold calibration on your own documents, handoff to staff, and a signed webhook for decisions. The evaluation results below were measured on the demo shop with prompt v8; the prompt is now v9 (same instructions, plus the shop profile and a note of what the shop does not offer). Re-run the evaluation on your own shop before relying on it. |
+| Fitting it to your shop | Built and covered by unit tests, **not measured with an LLM evaluation**: a mapping drafted from your database (`introspect-db`), optional data entities and tools that switch themselves off, parcels and product variants, return windows by category and reason, shop name and contact details, threshold calibration on your own documents, handoff to staff, and a signed webhook for decisions. The evaluation results below were measured on the demo shop with prompt v8; the prompt is now v10 (v9 added the shop profile and a note of what the shop does not offer; v10 makes exchanging an item a request of its own with its own rules, and passes a reason the customer already gave to the first eligibility check). Re-run the evaluation on your own shop before relying on it. |
 | Evaluation in CI | Partly. CI runs lint, type checks and the unit tests; the LLM evaluation is run by hand. Tracing, thresholds and `--fail-under` exist; a four-provider comparison does not. |
 
 All evaluation figures in this README were measured on the bundled demo shop and its sample
@@ -47,6 +47,11 @@ stands in for the identity a JWT carries on the API.
   extraction of order ids and SKUs so lookups are exact, never embedding-based.
 * **Return rules in code** (window, status, excluded categories, existing requests). The LLM only
   explains the result.
+* **Exchanges are not returns.** A shop that sets `business_rules.exchange` lets customers ask to swap
+  an item for another size, colour or unit. It has its own window (and longer ones for a fault), a limit
+  per order, and the item wanted instead is checked against the catalogue and stock. A shop that sets
+  nothing takes no exchange requests and the assistant offers to pass the customer to a person; it
+  never judges an exchange by the return period. See [DEPLOY.md](DEPLOY.md#exchanges).
 * **An agent loop** ([docs/agent.md](docs/agent.md)): the model decides which tools to call,
   step by step, and its answer streams token by token with citations. Conversations are saved
   (SQLite by default) and resume across restarts; each user's sessions are isolated; failed turns

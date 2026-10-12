@@ -41,8 +41,9 @@ the single agent with per-route tool lists stays.
 * **Everything a tool returns is data.** It is wrapped in `<untrusted_data>` (or `<fact
   authoritative="true">` for the rules engine) with closing tags neutralised, and the system
   prompt says never to follow instructions found in it.
-* **Return decisions are not the model's.** `check_return_eligibility` runs the rules in code;
-  the prompt says its verdict is final.
+* **Return and exchange decisions are not the model's.** `check_return_eligibility` and
+  `check_exchange_eligibility` run the rules in code; the prompt says their verdicts are final. An
+  exchange is judged by its own rules and never by the return period.
 
 ## What the model writes
 
@@ -78,7 +79,7 @@ the conversation.
 
 ## Requests the customer confirms
 
-Refund, return, warranty and order requests go through `propose_draft`:
+Refund, return, exchange, warranty and order requests go through `propose_draft`:
 
 1. The model gathers facts with read tools and calls `propose_draft` once with only the type,
    order, item and reason. It cannot give an amount, a price or an identity.
@@ -177,7 +178,7 @@ model can explain; if nothing at all came back, the outcome is `error`.
 
 ## Prompts
 
-`src/support_agent/agent/prompts/v9/system.md` is the system prompt (earlier versions are recorded in `prompts/__init__.py`). The version is attached to
+`src/support_agent/agent/prompts/v10/system.md` is the system prompt (earlier versions are recorded in `prompts/__init__.py`). The version is attached to
 every trace and report, so a quality change can be traced to a prompt change. Add a new folder
 and bump `PROMPT_VERSION` when you change it, and re-run `support-agent eval`.
 

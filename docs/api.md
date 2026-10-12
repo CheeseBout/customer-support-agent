@@ -87,7 +87,7 @@ Leave `session_id` out to start a conversation; the response returns the id to r
 
 ### Confirmations
 
-When the customer asks for a refund, return, warranty claim or order, the turn stops with
+When the customer asks for a refund, return, exchange, warranty claim or order, the turn stops with
 `outcome: "confirmation"` and an `interrupt` the client must show:
 
 ```json

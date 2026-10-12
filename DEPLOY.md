@@ -43,7 +43,7 @@ Three rules shape everything below:
    verifies it. The model never chooses or sees an identity, and a customer can only ever see their
    own orders.
 2. **The agent only reads your shop database.** It never writes to your orders, payments or stock.
-   When a customer asks for a refund, return, warranty claim or order, the agent prepares a
+   When a customer asks for a refund, return, exchange, warranty claim or order, the agent prepares a
    *draft*, the customer confirms it, and it waits in the `support_drafts` table for your staff.
    Nothing is fulfilled automatically.
 3. **Business decisions are code, not the model.** Return windows, refund limits and warranty
@@ -169,6 +169,8 @@ Things that commonly go wrong:
   customer id (see [11.1](#111-the-token)). This is how ownership is enforced.
 * **Delivery date:** map `order.delivered_at` if you want return windows counted from delivery
   (`business_rules.return.window_basis`).
+* **Exchange requests:** map `exchange_request` if your system stores them, so the limit per order
+  counts them (only if you set `business_rules.exchange`).
 * **Return requests:** map `return_request` if your system already stores them, so "already
   requested" is detected.
 
@@ -359,7 +361,8 @@ promise it.
   ```
 
   `request_types` lists what a customer may ask the assistant to prepare for confirmation:
-  `order`, `refund`, `return`, `warranty`. An empty list turns requests off altogether. An
+  `order`, `refund`, `return`, `exchange`, `warranty`, `handoff`. An `exchange` is offered only when
+  you also set `business_rules.exchange` (see [Exchanges](#exchanges)). An empty list turns requests off altogether. An
   `order` also needs `product` and `inventory` in the mapping, because it is priced from them.
 
 ## 8. Set your business rules
@@ -375,6 +378,7 @@ Open `config/app.yaml` and edit `business_rules`:
 | `return.allowed_order_statuses` | Statuses that can be returned (default `[delivered]`) |
 | `return.excluded_categories` | Product categories that cannot be returned (for example `gift_card`) |
 | `return.windows` | Different windows for some categories or reasons (see below). The first entry that matches an item wins; `window_days` applies when none does |
+| `exchange.*` | Rules for swapping an item (another size, colour or unit). Leave it out and the assistant takes no exchange requests. See [Exchanges](#exchanges) |
 | `refund.auto_review_max_amount` | Refunds above this are flagged for priority review |
 | `warranty.default_months`, `warranty.by_category` | Warranty period overall and per category |
 | `inventory.show_exact_quantity` | `false` shows only in stock / low / out of stock |
@@ -399,6 +403,39 @@ ordinary window, and the result lists the longer ones (`reason_windows`) so the 
 "is the item faulty?" instead of refusing. Each item then has its own deadline, and an item past
 its window is left out while the rest of the order can still go through. Reason codes:
 `defective`, `wrong_item`, `not_as_described`, `damaged_in_transit`, `changed_mind`, `other`.
+
+### Exchanges
+
+An exchange swaps an item the customer received for another one: a different size or colour of the
+same product, or a new unit of a faulty one. It is not a return. Shops give it its own period (a fashion
+shop often gives 15 days to swap a size and 7 to return), so it has its own rules and the assistant never
+uses the return period to judge it. Set them under `business_rules.exchange`:
+
+```yaml
+business_rules:
+  exchange:
+    window_days: 15                    # days from delivery (or created_at, see window_basis)
+    max_per_order: 1                   # exchanges one order may have; null = no limit
+    same_product_only: true            # only another variant of the same product, or a new unit when faulty
+    excluded_categories: [underwear]   # kinds of product that cannot be exchanged
+    windows:                           # other periods by reason or category; the first match wins
+      - reasons: [defective, wrong_item, not_as_described, damaged_in_transit]
+        days: 30
+```
+
+* **Left out (the default):** the assistant takes no exchange requests. If a customer asks, it answers
+  from your exchange policy text and offers to pass them to a person (`handoff`).
+* **What the customer gets instead.** The assistant finds the other variant by `group_id` and `options`
+  in your `product` entity (see [docs/schema-mapping.md](docs/schema-mapping.md)) and checks it is in
+  stock. Without `group_id` it cannot tell variants of one product apart, so either map it or set
+  `same_product_only: false`.
+* **Exchanges you already have.** Map the optional `exchange_request` entity (`id`, `order_id`,
+  `status`, optionally `sku`) so the limit per order counts them. Rows that share an `id` count once,
+  and `rejected` or `cancelled` ones do not count. Without it only exchanges made through the assistant
+  are counted.
+* **Like every request** it is confirmed by the customer, stored as a `pending` draft of type `exchange`
+  and decided by your staff; nothing is shipped or refunded automatically. Fees and who pays the
+  shipping stay in your policy text, not in the configuration, so keep the two consistent.
 
 **Who the agent speaks for.** The `shop` section gives the shop's name, a one-line description
 and how to reach a person (email, phone, opening hours, help page). The agent names the shop and
@@ -611,7 +648,7 @@ text so far: replace what you showed with this text), `interrupt` (a confirmatio
 
 ### 11.3 Confirmations
 
-When a customer asks for a refund, return, warranty claim or order, the turn stops with
+When a customer asks for a refund, return, exchange, warranty claim or order, the turn stops with
 `outcome: "confirmation"` and an `interrupt`. Your UI must show its `summary` (the amount, items
 and order, all computed by the server from your data) with buttons for the `allowed_decisions`:
 
