@@ -194,6 +194,7 @@ class IngestResponse(BaseModel):
     unchanged: list[str]
     removed: list[str]
     failed: dict[str, str]
+    skipped: dict[str, str] = Field(default_factory=dict)  # not for customers: document -> why
     chunks_written: int
 
 

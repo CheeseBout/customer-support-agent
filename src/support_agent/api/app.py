@@ -628,6 +628,7 @@ async def admin_ingest(
         unchanged=report.unchanged,
         removed=report.removed,
         failed=report.failed,
+        skipped=report.skipped,
         chunks_written=report.chunks_written,
     )
 

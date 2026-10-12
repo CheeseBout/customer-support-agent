@@ -254,7 +254,17 @@ def main() -> None:  # pragma: no cover - process entry point
         raise SystemExit("MCP_PRINCIPAL_SECRET must be set for the MCP server process")
     mapping = load_mapping(settings.app.mapping.path)
     adapter = create_adapter(settings, mapping)
-    service = BusinessService(adapter, settings.app.business_rules)
+    clock = None
+    if settings.support_agent_now:
+        import logging
+
+        from support_agent.core.clock import frozen_clock
+
+        clock = frozen_clock(settings.support_agent_now, settings.app.business_rules.timezone)
+        logging.getLogger(__name__).warning(
+            "the clock is frozen at %s (evaluation mode)", settings.support_agent_now
+        )
+    service = BusinessService(adapter, settings.app.business_rules, clock=clock)
     secret = settings.mcp_principal_secret.get_secret_value().encode()
     build_server(service, secret, disabled=settings.app.capabilities.disabled_tools).run("stdio")
 

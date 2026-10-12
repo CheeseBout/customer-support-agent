@@ -25,7 +25,7 @@ MySQL and MongoDB) runs in Docker.
 | Memory and workspace | Built and tested. Conversation summaries, optional saved preferences, per-session files. A multi-agent split is deliberately not built: nothing shows it would beat the single agent. |
 | Guardrails | Built and tested. Input screening, rate limit, output checks, an English and Vietnamese red-team set. Phrase-based: see [docs/agent.md](docs/agent.md). |
 | HTTP API | Built and tested. JWT auth, chat as JSON or SSE, sessions, requests, staff review, Docker. See [docs/api.md](docs/api.md). |
-| Fitting it to your shop | Built and covered by unit tests, **not measured with an LLM evaluation**: a mapping drafted from your database (`introspect-db`), optional data entities and tools that switch themselves off, parcels and product variants, return windows by category and reason, shop name and contact details, threshold calibration on your own documents, handoff to staff, and a signed webhook for decisions. The evaluation results below were measured on the demo shop with prompt v8; the prompt is now v10 (v9 added the shop profile and a note of what the shop does not offer; v10 makes exchanging an item a request of its own with its own rules, and passes a reason the customer already gave to the first eligibility check). Re-run the evaluation on your own shop before relying on it. |
+| Fitting it to your shop | Built and covered by unit tests, **not measured with an LLM evaluation**: a mapping drafted from your database (`introspect-db`), optional data entities and tools that switch themselves off, parcels and product variants, return windows by category and reason, shop name and contact details, threshold calibration on your own documents, handoff to staff, and a signed webhook for decisions. The evaluation results below were measured on the demo shop with prompt v8; the prompt is now v11 (v9 added the shop profile and a note of what the shop does not offer; v10 makes exchanging an item a request of its own with its own rules, and passes a reason the customer already gave to the first eligibility check; v11 stops the model reporting an expiry that a reason could change, and from claiming the shop lacks something no document says). Re-run the evaluation on your own shop before relying on it. |
 | Evaluation in CI | Partly. CI runs lint, type checks and the unit tests; the LLM evaluation is run by hand. Tracing, thresholds and `--fail-under` exist; a four-provider comparison does not. |
 
 All evaluation figures in this README were measured on the bundled demo shop and its sample
@@ -36,7 +36,7 @@ stands in for the identity a JWT carries on the API.
 
 ## What works
 
-* **Policy Q&A** over `.md`, `.pdf` and `.docx` with structured citations. Hybrid search (dense
+* **Policy Q&A** over `.md`, `.pdf` and `.docx` with structured citations. Documents marked as staff-only (`Audience: Internal`, `Đối tượng: Nội bộ`) are never indexed. Hybrid search (dense
   `multilingual-e5-large` + BM25) in Qdrant, incremental ingest by content hash, a calibrated
   relevance gate, and "I don't know" when nothing relevant is found. A Vietnamese question finds
   an English document and vice versa.
@@ -138,7 +138,7 @@ reproducible: `1234` is returnable, `1235` is past the window, `1239` is a gift 
 | `validate-mapping` | Check the schema mapping against the live database |
 | `serve [--host] [--port]` | Run the HTTP API. Refuses to start without a valid JWT setting |
 | `check [--skip-llm]` | Verify configuration, Qdrant, database and the model's capabilities |
-| `eval [--engine agent\|pipeline] [--offline] [--dataset FILE] [--subset ci] [--limit N] [--name NAME] [--judge] [--fail-under] [--compare REPORT.json] [--rescore REPORT.json] [--concurrency N] [--run-timeout S]` | Evaluate and write a report. The agent is compared with the fixed-pipeline baseline; `--fail-under` also fails on a regression; `--rescore` grades a saved report again with the current dataset and calls no model |
+| `eval [--engine agent\|pipeline] [--offline] [--dataset FILE] [--subset ci] [--limit N] [--name NAME] [--judge] [--fail-under] [--compare REPORT.json] [--rescore REPORT.json] [--concurrency N] [--run-timeout S] [--as-of ISO8601] [--repeat N]` | Evaluate and write a report. The agent is compared with the fixed-pipeline baseline; `--fail-under` also fails on a regression; `--rescore` grades a saved report again with the current dataset and calls no model; `--as-of` freezes "now" so deadlines do not drift; `--repeat N` runs the dataset N times and reports the spread |
 
 ## Configuration
 
@@ -165,6 +165,7 @@ Secrets and endpoints come from the environment (`.env`, see `.env.example`); tu
 | `DRAFTS_DB_URL` | Account that may write only `support_drafts` and `support_draft_events`; without it the agent cannot submit requests (see [DEPLOY.md](DEPLOY.md)) |
 | `WEBHOOK_URL` `WEBHOOK_SECRET` | Send each request and decision to your system as a signed JSON POST; both are needed together |
 | `MCP_PRINCIPAL_SECRET` | Signs the caller identity passed to the MCP server; empty = a random secret per process |
+| `SUPPORT_AGENT_NOW` | Freezes the clock of the data tools at an ISO 8601 moment. For evaluation only (use `evals.as_of` or `eval --as-of`); never set it on a server that serves customers |
 | `LOG_LEVEL` | Logging level (default `INFO`) |
 
 Default models: `gpt-4o-mini`, `claude-haiku-4-5`, `gemini-3.5-flash-lite`, and a free OpenRouter
@@ -220,6 +221,13 @@ support-agent eval --subset ci        # ~30 samples for CI
 Reports are written to the directory set by `evals.report_dir` (the demo's go to
 `examples/demo-shop/evals/reports/`). The agent evaluation uses a throwaway drafts store, so
 it never touches real requests.
+
+A model answers a little differently every time, and a shop's data is a snapshot, so two things keep a report honest:
+
+* `--repeat 3` runs the whole dataset three times and writes a summary with the mean and the lowest and highest run of every metric, the questions that failed every time (a real problem, or a wrong expectation) and those that passed only sometimes (noise). Judge a change by the mean, not by one run.
+* `--as-of 2026-10-09T12:00:00+07:00` (or `evals.as_of`) freezes "now" for the data tools, so a return window that ended last week does not turn an expected "yes" into a "no". Set it to the day your data was taken.
+
+In a dataset, `route_any` and `outcome_any` list the results that are all right (a staff-only question may be refused as out of scope or answered "no information": both reveal nothing).
 
 ### After-sales dataset
 
@@ -368,6 +376,7 @@ delivered on 7 Oct with a 7-day window is returnable through 13 Oct.
   variants need a view that joins the parent product's name to each variant.
 * There is no adapter for a shop platform's own API (Shopify, WooCommerce, ...): the data layer
   reads a SQL or MongoDB database. Expose the platform's data as views or a replica.
+* A document is recognised as staff-only by a line such as `Audience: Internal` near its top, or by `knowledge.exclude`. One that says nothing about its audience is indexed, so check what `ingest` reports as skipped.
 * Guest checkout is not supported: every customer lookup needs the customer id in the token.
 * Scanned (image-only) PDFs are not supported; there is no OCR.
 * The shipped evaluation datasets, thresholds and results describe the demo shop only. A real

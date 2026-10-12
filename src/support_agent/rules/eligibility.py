@@ -39,6 +39,15 @@ class EligibilityResult(BaseModel):
     # Windows that would be longer for a reason the customer has not given yet, e.g. a faulty
     # item. Empty when the shop has no reason-specific windows or the reason is known.
     reason_windows: list[dict[str, Any]] = Field(default_factory=list)
+    # Set when a "no" is not final: a reason the customer has not given could open a longer period.
+    note: str | None = None
+
+
+NOT_FINAL_NOTE = (
+    "Not final: a longer period applies for some reasons (see reason_windows). If the customer "
+    "has said why, call this tool again with `reason`; if not, ask them why before saying the "
+    "period has expired."
+)
 
 
 def _parse(ts: Any, tz: ZoneInfo) -> datetime | None:
@@ -217,6 +226,9 @@ def check_return_eligibility(
         eligible_items=[view(n, i) for n, i in eligible_items] if eligible else [],
         checks=checks,
         reason_windows=reason_windows,
+        note=NOT_FINAL_NOTE
+        if not eligible and any(w.get("still_open") for w in reason_windows)
+        else None,
     )
 
 

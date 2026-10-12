@@ -59,7 +59,7 @@ curl -s localhost:8000/v1/chat -H "Authorization: Bearer $TOKEN" -H 'content-typ
 | POST | `/v1/admin/drafts/{id}/approve` | staff | Optional `note` |
 | POST | `/v1/admin/drafts/{id}/reject` | staff | `note` required; the customer sees it |
 | GET | `/v1/admin/events` | staff | Webhook deliveries (`state`: pending, delivered, failed; `limit`). `configured` is false without `WEBHOOK_URL` |
-| POST | `/v1/admin/ingest` | staff | Reload `knowledge/` (`full` rebuilds the index) |
+| POST | `/v1/admin/ingest` | staff | Reload `knowledge/` (`full` rebuilds the index). Documents marked staff-only are not indexed and are listed under `skipped` |
 | GET | `/health` | public | Liveness |
 | GET | `/ready` | public | `200` when the index has documents and the model passed its capability check; `503` otherwise, with the reason per check |
 

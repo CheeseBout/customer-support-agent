@@ -159,7 +159,7 @@ def evaluate_heuristic_routing(samples: list[Sample]) -> RoutingReport:
     rows = [
         (s, heuristic_route(s.input, extract_entities(s.input)).route)
         for s in samples
-        if s.expected.route
+        if s.expected.expects_route()
     ]
     return summarise_routing("heuristic", rows)
 
@@ -168,16 +168,19 @@ def summarise_routing(source: str, rows: Sequence[tuple[Sample, str | None]]) ->
     confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     by_type: dict[str, list[bool]] = defaultdict(list)
     for s, actual in rows:
-        ok = actual == s.expected.route
-        confusion[str(s.expected.route)][str(actual)] += 1
+        ok = s.expected.route_matches(actual)
+        # A sample with several right routes counts under the one the system actually gave when
+        # that is right, so the confusion table only shows real mistakes.
+        label = str(actual) if ok else s.expected.route_label
+        confusion[label][str(actual)] += 1
         by_type[s.type].append(ok)
     return RoutingReport(
         source=source,
         n=len(rows),
-        accuracy=m.mean([actual == s.expected.route for s, actual in rows]),
+        accuracy=m.mean([s.expected.route_matches(actual) for s, actual in rows]),
         by_type={k: m.mean(v) for k, v in sorted(by_type.items())},
         confusion={k: dict(v) for k, v in confusion.items()},
-        failures=[s.id for s, actual in rows if actual != s.expected.route],
+        failures=[s.id for s, actual in rows if not s.expected.route_matches(actual)],
     )
 
 
@@ -222,8 +225,8 @@ class SampleResult:
 def score_sample(sample: Sample, answer: RagAnswer, verdict: JudgeVerdict | None) -> SampleScores:
     exp = sample.expected
     sc = SampleScores()
-    sc.route_ok = None if exp.route is None else answer.route == exp.route
-    sc.outcome_ok = None if exp.outcome is None else answer.outcome == exp.outcome
+    sc.route_ok = exp.route_matches(answer.route) if exp.expects_route() else None
+    sc.outcome_ok = exp.outcome_matches(answer.outcome) if exp.expects_outcome() else None
     # Right data tools called (and none for a policy question), and policy text actually
     # retrieved whenever the answer needs it.
     searched = not exp.docs or bool(answer.retrieved)
@@ -469,9 +472,9 @@ def summarise_pipeline(results: list[SampleResult]) -> PipelineReport:
         sc, exp = r.scores, r.sample.expected
         problems = []
         if sc.route_ok is False:
-            problems.append(f"route {r.answer.route!r} != {exp.route!r}")
+            problems.append(f"route {r.answer.route!r} != {exp.route_label!r}")
         if sc.outcome_ok is False:
-            problems.append(f"outcome {r.answer.outcome!r} != {exp.outcome!r}")
+            problems.append(f"outcome {r.answer.outcome!r} != {exp.outcome_label!r}")
         if sc.tools_ok is False:
             if exp.docs and not r.answer.retrieved:
                 problems.append("policy documents were needed but none were retrieved")
@@ -515,7 +518,7 @@ def summarise_pipeline(results: list[SampleResult]) -> PipelineReport:
             [
                 (r.sample, r.answer.route if r.answer else None)
                 for r in results
-                if r.sample.expected.route
+                if r.sample.expected.expects_route()
             ],
         ),
         metrics={

@@ -44,6 +44,7 @@ the single agent with per-route tool lists stays.
 * **Return and exchange decisions are not the model's.** `check_return_eligibility` and
   `check_exchange_eligibility` run the rules in code; the prompt says their verdicts are final. An
   exchange is judged by its own rules and never by the return period.
+* **A reason already given is not left to the model's memory.** Our code spots it in the message (Vietnamese and English, plus the shop's `router.reason_words`) and adds a hint to pass it to the first eligibility check. A "no" that a reason could change carries a `note` saying it is not final, and the prompt tells the model not to report an expiry until it has asked or passed the reason.
 
 ## What the model writes
 

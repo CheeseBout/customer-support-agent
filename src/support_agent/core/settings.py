@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -75,10 +76,18 @@ class RouterConfig(BaseModel):
     order_id_patterns: list[str] = Field(default_factory=list)
     # Overrides the built-in SKU pattern when set.
     sku_pattern: str | None = None
+    # Extra phrases customers use to give a reason, per reason code, on top of the built-in
+    # Vietnamese and English ones, e.g. {defective: ["bị chập"]}.
+    reason_words: dict[ReasonCode, list[str]] = Field(default_factory=dict)
 
 
 class KnowledgeConfig(BaseModel):
     dir: Path = Path("./knowledge")
+    # Documents meant for staff must not be answered to customers. A document whose first lines
+    # say it is internal ("Audience: Internal", "Đối tượng: Nội bộ", ...) is left out of the index.
+    skip_internal: bool = True
+    exclude: list[str] = Field(default_factory=list)  # globs, e.g. ["internal/*", "*-staff-*.docx"]
+    internal_markers: list[str] = Field(default_factory=list)  # extra regexes for the document head
 
 
 class MappingConfig(BaseModel):
@@ -205,6 +214,10 @@ class EvalsConfig(BaseModel):
     thresholds: EvalThresholds = EvalThresholds()
     retrieval_ks: list[int] = Field(default_factory=lambda: [1, 3, 6])
     concurrency: int = 1
+    # Freeze "now" at this moment while evaluating (ISO 8601; without a zone, the business time
+    # zone). A shop's data is a snapshot, so without it every deadline drifts and the expected
+    # answers go stale. For evaluation only: never set it on a server that serves customers.
+    as_of: datetime | None = None
 
 
 class ShopContact(BaseModel):
@@ -329,6 +342,9 @@ class Settings(BaseSettings):
     )
 
     # LLM
+    # A fixed "now" for the data tools (evaluation only; see evals.as_of). Never set in production.
+    support_agent_now: str | None = None
+
     llm_provider: Provider = "openai"
     llm_model: str | None = None
     openai_api_key: SecretStr | None = None

@@ -338,6 +338,15 @@ support-agent ingest --full         # rebuild the index from scratch
 
 Re-run `ingest` whenever a document changes. Deleted files are removed from the index.
 
+**Keep staff-only documents out.** The assistant answers customers from everything it has indexed. A document whose first lines say it is internal (`Audience: Internal`, `Đối tượng: Nội bộ`, "internal use only", "staff only") is skipped, and removed from the index if an earlier run had loaded it; `ingest` lists what it skipped. To be explicit, or for documents that carry no such line, set it in `config/app.yaml`:
+
+```yaml
+knowledge:
+  skip_internal: true            # the default
+  exclude: ["internal/*", "*-staff-*.docx"]   # globs on the path inside the knowledge folder
+  internal_markers: ["tier:\\s*l2"]            # your own regexes for the top of a document
+```
+
 **Keep documents and rules consistent.** The documents explain the policy; the numbers that
 decide a case (return days, refund limit, warranty months) come from `config/app.yaml` (step 8).
 If your document says 14 days and the config says 7, the agent will quote 14 and decide with 7.
@@ -447,6 +456,7 @@ Other useful settings:
 * **Order id and SKU formats.** The agent recognises `#1234`, `order 1234`, `đơn hàng 1234` and
   `ORD-1234`. If your ids look different, add a regular expression under
   `router.order_id_patterns` (group 1 must capture the id) and, if needed, `router.sku_pattern`.
+* **Words for a reason.** When a customer says why ("it is broken", "bị lỗi", "giao sai hàng"), the assistant passes that reason to the first eligibility check, so a longer period for a fault applies. Vietnamese and English phrases are built in; add your own under `router.reason_words`, for example `{defective: ["bị chập"]}`.
 * **Guardrails:** `guardrails.rate_limit_per_minute`, `guardrails.max_input_chars`.
 * **Timeouts and limits:** `agent.run_timeout_seconds`, `agent.max_steps`,
   `agent.confirmation_ttl_minutes` (how long a customer has to confirm a request).
@@ -751,6 +761,14 @@ The figures in the README describe the demo shop. For yours:
    ```
 
 A full run makes several hundred model calls: mind your plan's quota.
+
+4. **Make the numbers trustworthy.** A model answers differently each time, and your data is a snapshot taken on one day:
+
+   ```bash
+   support-agent eval --subset ci --judge --repeat 3 --as-of 2026-10-09T12:00:00+07:00
+   ```
+
+   `--as-of` freezes "now" for the data tools (put it under `evals.as_of` to make it the default), so deadlines stay where your questions assume them. `--repeat` writes each run and a `-summary` report with the mean and spread; a question that passes only some runs is noise, one that fails every run is a real problem or a wrong expectation. In your dataset use `route_any` or `outcome_any` where more than one result is right.
 
 ## 14. Troubleshooting
 

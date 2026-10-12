@@ -17,11 +17,16 @@ from support_agent.evals.dataset import Fact
 _THOUSANDS = re.compile(r"(?<=\d)[.,  ](?=\d{3}(?!\d))")
 
 
+# "15-day window", "15 day" and "15 days" say the same thing.
+_DURATION = re.compile(r"(\d)[\s-]*(day|week|month|year|hour|minute)s?\b")
+
+
 def fold_text(text: str) -> str:
     """Lowercase, strip diacritics and thousands separators (350.000 = 350,000 = 350000)."""
     text = unicodedata.normalize("NFD", text.replace("đ", "d").replace("Đ", "D"))
     text = "".join(c for c in text if unicodedata.category(c) != "Mn").lower()
     text = _THOUSANDS.sub("", text)
+    text = _DURATION.sub(r"\1 \2s", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -64,6 +69,9 @@ _NEGATIVE = (
     "expired", "unfortunately", "not possible", "not able", "not allowed", "already",
     "khong du dieu kien", "khong the", "khong duoc", "da het han", "qua han", "rat tiec",
     "khong con", "da qua", "khong thuoc", "da co yeu cau",
+    "chua the", "chua du dieu kien", "chua duoc giao", "chua giao", "not yet", "cannot yet",
+    "can't yet", "not been delivered", "hasn't been delivered", "has not been delivered",
+    "isn't delivered", "is not delivered", "not currently eligible",
 )  # fmt: skip
 _POSITIVE = (
     "eligible", "can return", "you can", "yes", "still within", "within the",

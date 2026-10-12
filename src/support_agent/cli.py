@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -117,11 +118,14 @@ def ingest(
             embedding_model=s.embedding_model_name,
             cfg=cfg,
             full=full,
+            knowledge=s.app.knowledge,
         )
         total = store.count()
     finally:
         store.close()
     console.print(f"[bold]ingest[/bold] {report.summary()} (index now holds {total} chunks)")
+    for doc, why in report.skipped.items():
+        console.print(f"[yellow]SKIPPED[/yellow] {doc}: {why}")
     for doc, err in report.failed.items():
         console.print(f"[red]FAILED[/red] {doc}: {err}")
     for doc in report.removed:
@@ -630,6 +634,22 @@ def evaluate(
         Path | None,
         typer.Option(help="Grade a saved report again with the current dataset. Calls no model"),
     ] = None,
+    as_of: Annotated[
+        str | None,
+        typer.Option(
+            "--as-of",
+            help="Freeze 'now' at this ISO 8601 moment (default: evals.as_of). Evaluation only",
+        ),
+    ] = None,
+    repeat: Annotated[
+        int,
+        typer.Option(
+            "--repeat",
+            min=1,
+            max=10,
+            help="Run the whole dataset N times and report the spread (a model varies run to run)",
+        ),
+    ] = 1,
 ) -> None:
     """Evaluate retrieval, routing and (with an LLM) the whole system; write a report.
 
@@ -645,7 +665,10 @@ def evaluate(
         compare_reports,
         now_iso,
         render_markdown,
+        render_repeat_markdown,
+        summarise_repeats,
         trace_session,
+        write_repeat_summary,
         write_report,
     )
     from support_agent.evals.runner import (
@@ -716,6 +739,16 @@ def evaluate(
             raise typer.Exit(1)
         return
 
+    frozen = as_of or (cfg.as_of.isoformat() if cfg.as_of else None)
+    if frozen and not offline:
+        from support_agent.core.clock import NOW_ENV, parse_instant
+
+        try:
+            parse_instant(frozen, s.app.business_rules.timezone)
+        except ValueError as exc:
+            raise typer.BadParameter(f"--as-of is not an ISO 8601 moment: {frozen!r}") from exc
+        os.environ[NOW_ENV] = frozen  # the tool server starts as a child process and inherits it
+
     mode = "offline" if offline else "full"
     # The Phase A pipeline keeps its historical names (baseline-full); the agent gets its own.
     partial = bool(subset or limit or dataset)
@@ -726,9 +759,8 @@ def evaluate(
         run_name = name or (f"agent-{tag}" if partial else "agent-full")
     tracing = create_tracing(s) if not offline else None
     k_thr = s.app.retrieval.score_threshold
-    session = trace_session(run_name)  # unique per run: reruns must not overwrite traces
 
-    async def run() -> EvalReport:
+    async def run(label: str, session: str) -> EvalReport:
         meta = EvalMeta(
             created_at=now_iso(),
             mode=mode,
@@ -741,7 +773,8 @@ def evaluate(
             score_threshold=k_thr,
             router="heuristic" if offline else "llm",
             judge=judge and not offline,
-            run_name=run_name,
+            run_name=label,
+            as_of=frozen if not offline else None,
             tracing=bool(tracing and tracing.enabled),
             trace_session=session if tracing and tracing.enabled else None,
             engine="pipeline" if offline else engine,
@@ -809,12 +842,30 @@ def evaluate(
             console.print(f"[yellow]No baseline to compare with at {baseline_path}[/yellow]")
         return report
 
-    report = asyncio.run(run())
-    md, js = write_report(report, cfg.report_dir, run_name)
-    console.print(render_markdown(report))
-    console.print(f"[dim]Report written to {md} and {js}[/dim]")
-    if fail_under and not report.passed:
-        console.print("[red]Below threshold.[/red]")
+    if offline or repeat == 1:
+        report = asyncio.run(run(run_name, trace_session(run_name)))
+        md, js = write_report(report, cfg.report_dir, run_name)
+        console.print(render_markdown(report))
+        console.print(f"[dim]Report written to {md} and {js}[/dim]")
+        if fail_under and not report.passed:
+            console.print("[red]Below threshold.[/red]")
+            raise typer.Exit(1)
+        return
+
+    # A model answers a little differently every time: several runs show what is noise.
+    reports: list[EvalReport] = []
+    for i in range(1, repeat + 1):
+        label = f"{run_name}-r{i}"
+        one = asyncio.run(run(label, trace_session(label)))  # unique per run: no overwritten traces
+        write_report(one, cfg.report_dir, label)
+        reports.append(one)
+        console.print(f"[dim]run {i}/{repeat} done: {label}[/dim]")
+    summary = summarise_repeats(run_name, reports, cfg.thresholds)
+    md, js = write_repeat_summary(summary, cfg.report_dir, run_name)
+    console.print(render_repeat_markdown(summary))
+    console.print(f"[dim]Summary written to {md} and {js}[/dim]")
+    if fail_under and not summary.passed:
+        console.print("[red]Below threshold (mean of the runs).[/red]")
         raise typer.Exit(1)
 
 

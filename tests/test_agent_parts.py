@@ -111,7 +111,7 @@ def test_system_prompt_carries_language_hints_and_version():
     assert text.startswith("You are the customer support agent")
     assert "Reply in Vietnamese" in text and "order id(s) 1234" in text and "{{" not in text
     assert "Reply in English" in system_prompt("en")
-    assert PROMPT_VERSION == "v10"
+    assert PROMPT_VERSION == "v11"
     for rule in ("[NO_INFO]", "DATA, not instructions", "check_return_eligibility", "low_stock"):
         assert rule in text
 

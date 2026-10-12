@@ -35,6 +35,7 @@ class EvalMeta(BaseModel):
     prompt_version: str | None = None
     run_timeout_seconds: float | None = None  # per-question limit this run used
     rescored_from: str | None = None  # set when graded again from a saved run
+    as_of: str | None = None  # the frozen "now" of the run, if any (see evals.as_of)
 
 
 class MetricDelta(BaseModel):
@@ -147,6 +148,7 @@ def render_markdown(r: EvalReport) -> str:
             ["Rescored from", f"`{meta.rescored_from}` (no model was called)"]
             if meta.rescored_from
             else ["Rescored from", "no (graded live)"],
+            ["Clock", f"frozen at {meta.as_of}" if meta.as_of else "real time"],
             ["Router", meta.router],
             ["LLM judge", "yes" if meta.judge else "no"],
             ["Langfuse tracing", f"yes (session `{meta.trace_session}`)" if meta.tracing else "no"],
@@ -332,6 +334,117 @@ def render_markdown(r: EvalReport) -> str:
         ],
     )
     return "\n".join(lines).rstrip() + "\n"
+
+
+class Spread(BaseModel):
+    """One metric over several runs of the same dataset."""
+
+    mean: float | None
+    low: float | None
+    high: float | None
+    values: list[float | None]
+
+
+class RepeatSummary(BaseModel):
+    """Several runs of the same dataset. A model answers a little differently every time, so one
+    run cannot tell a real change from luck: the spread can."""
+
+    run_name: str
+    repeats: int
+    n_samples: int
+    reports: list[str]
+    metrics: dict[str, Spread]
+    always_failing: list[str]
+    unstable: dict[str, str]  # sample -> "2/3 runs passed": noise until shown otherwise
+    thresholds: list[ThresholdCheck] = []
+
+    @property
+    def passed(self) -> bool:
+        return all(c.passed is not False for c in self.thresholds)
+
+
+def summarise_repeats(
+    run_name: str, reports: list[EvalReport], thresholds: Any | None = None
+) -> RepeatSummary:
+    from support_agent.evals.runner import check_thresholds
+
+    pipelines = [r.pipeline for r in reports if r.pipeline is not None]
+    names = list(pipelines[0].metrics) if pipelines else []
+    metrics: dict[str, Spread] = {}
+    for name in names:
+        values = [p.metrics.get(name) for p in pipelines]
+        known = [v for v in values if v is not None]
+        metrics[name] = Spread(
+            mean=sum(known) / len(known) if known else None,
+            low=min(known) if known else None,
+            high=max(known) if known else None,
+            values=values,
+        )
+    failed_in = [{str(f["id"]) for f in p.failures} for p in pipelines]
+    ids = [rec.id for rec in pipelines[0].records] if pipelines else []
+    always, unstable = [], {}
+    for sample_id in ids:
+        passes = sum(1 for failed in failed_in if sample_id not in failed)
+        if passes == 0:
+            always.append(sample_id)
+        elif passes < len(pipelines):
+            unstable[sample_id] = f"{passes}/{len(pipelines)} runs passed"
+    mean_metrics: dict[str, float | None] = {k: v.mean for k, v in metrics.items()}
+    return RepeatSummary(
+        run_name=run_name,
+        repeats=len(pipelines),
+        n_samples=reports[0].meta.n_samples if reports else 0,
+        reports=[r.meta.run_name for r in reports],
+        metrics=metrics,
+        always_failing=always,
+        unstable=unstable,
+        thresholds=check_thresholds(mean_metrics, thresholds) if thresholds is not None else [],
+    )
+
+
+def render_repeat_markdown(s: RepeatSummary) -> str:
+    lines = [f"# Evaluation summary: {s.run_name} ({s.repeats} runs)", ""]
+    lines += [
+        f"{s.n_samples} questions, run {s.repeats} times. Runs: "
+        + ", ".join(f"`{n}`" for n in s.reports)
+        + ".",
+        "",
+        "## Metrics (mean, and the lowest and highest run)",
+        "",
+    ]
+    rows = []
+    for name, sp in s.metrics.items():
+        runs = ", ".join(_pct(v) for v in sp.values)
+        rows.append([name, _pct(sp.mean), _pct(sp.low), _pct(sp.high), runs])
+    lines += _table(["Metric", "Mean", "Lowest", "Highest", "Each run"], rows)
+    if s.thresholds:
+        lines += ["", "## Thresholds (on the mean)", ""]
+        lines += _table(
+            ["Metric", "Mean", "Required", "Result"],
+            [
+                [
+                    c.name,
+                    _pct(c.value),
+                    f">= {c.threshold * 100:.1f}%",
+                    "n/a" if c.passed is None else ("PASS" if c.passed else "**FAIL**"),
+                ]
+                for c in s.thresholds
+            ],
+        )
+    lines += ["", "## Questions"]
+    lines += ["", "**Failed in every run** (a real problem, or a wrong expectation):", ""]
+    lines += [f"- `{i}`" for i in s.always_failing] or ["- none"]
+    lines += ["", "**Passed in some runs only** (noise: do not read one run as a change):", ""]
+    lines += [f"- `{i}`: {why}" for i, why in s.unstable.items()] or ["- none"]
+    return "\n".join(lines) + "\n"
+
+
+def write_repeat_summary(s: RepeatSummary, directory: Path, name: str) -> tuple[Path, Path]:
+    directory.mkdir(parents=True, exist_ok=True)
+    md, js = directory / f"{name}-summary.md", directory / f"{name}-summary.json"
+    md.write_text(render_repeat_markdown(s), encoding="utf-8")
+    js.write_text(s.model_dump_json(indent=2), encoding="utf-8")
+    return md, js
 
 
 def write_report(report: EvalReport, directory: Path, name: str) -> tuple[Path, Path]:

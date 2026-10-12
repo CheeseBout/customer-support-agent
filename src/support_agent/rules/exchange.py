@@ -37,6 +37,7 @@ class ExchangeResult(BaseModel):
     checks: list[Check] = Field(default_factory=list)
     # Longer windows that a reason (for example a fault) would unlock; see `ReturnRule.windows`.
     reason_windows: list[dict[str, Any]] = Field(default_factory=list)
+    note: str | None = None  # set when a "no" is not final; see `NOT_FINAL_NOTE`
     exchanges_used: int = 0
     exchanges_allowed: int | None = None  # None: no limit
     # Set when the customer named the item they want: whether it can be had.
@@ -110,6 +111,7 @@ def check_exchange_eligibility(
         else [],
         checks=checks,
         reason_windows=base.reason_windows,
+        note=base.note if not eligible else None,
         exchanges_used=used,
         exchanges_allowed=allowed,
     )

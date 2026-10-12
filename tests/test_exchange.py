@@ -537,7 +537,7 @@ def test_the_hint_for_an_exchange_names_the_exchange_tool_and_only_if_the_shop_h
 
 
 def test_the_prompt_no_longer_sends_exchanges_to_the_return_rules():
-    assert PROMPT_VERSION == "v10"
+    assert PROMPT_VERSION == "v11"
     text = system_prompt("en", offer=Offer())
     assert "check_exchange_eligibility" in text
     assert "returning, refunding or exchanging" not in text

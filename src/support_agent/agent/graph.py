@@ -23,7 +23,7 @@ import json
 import logging
 import re
 import uuid
-from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -53,6 +53,7 @@ from support_agent.agent.tools import PROPOSE_DRAFT, ToolExecutor, schema_tools_
 from support_agent.core.capabilities import REQUEST_TYPES, Offer, RequestType
 from support_agent.core.i18n import t
 from support_agent.core.principal import Principal
+from support_agent.core.reasons import reasons_in
 from support_agent.core.settings import AppConfig
 from support_agent.drafts.service import DraftError, DraftService
 from support_agent.llm.structured import message_text
@@ -172,11 +173,17 @@ def _model_messages(state: AgentState, limit: int) -> list[BaseMessage]:
     ]
 
 
-def _hints(state: AgentState, *, exchanges: bool = False) -> list[str]:
+def _hints(
+    state: AgentState,
+    *,
+    exchanges: bool = False,
+    reason_words: Mapping[Any, Sequence[str]] | None = None,
+) -> list[str]:
     """Facts our own code extracted from the message (regex), safe to state as instructions.
 
     `exchanges`: this shop takes exchange requests, so a question about swapping an item is
-    pointed at the exchange rules and not at the return rules."""
+    pointed at the exchange rules and not at the return rules. `reason_words`: the shop's own
+    phrases for a reason, on top of the built-in ones."""
     hints: list[str] = []
     if state.get("order_ids"):
         hints.append(
@@ -195,6 +202,23 @@ def _hints(state: AgentState, *, exchanges: bool = False) -> list[str]:
             "This is about exchanging an item (another size, colour or unit), which is not a "
             "return and has its own deadline: call check_exchange_eligibility for each order "
             "id. Never judge an exchange with check_return_eligibility."
+        )
+    # A reason already in the message must reach the first check: a longer period for a fault is
+    # only applied when the reason is passed, and the model does not reliably do it by itself.
+    asks = [
+        name
+        for name, wanted in (
+            ("check_return_eligibility", wants_return_check(question)),
+            ("check_exchange_eligibility", exchanges and wants_exchange_check(question)),
+        )
+        if wanted
+    ]
+    given = reasons_in(question, reason_words) if state.get("order_ids") and asks else []
+    if given:
+        hints.append(
+            f'The customer has already given a reason ("{given[0]}", from their own words). '
+            f'Pass reason="{given[0]}" in the FIRST call of {" and ".join(asks)}. Without it the '
+            "verdict is the strict one and a longer period for this reason is missed."
         )
     return hints
 
@@ -392,6 +416,7 @@ def build_graph(deps: AgentDeps, checkpointer: Any) -> CompiledStateGraph:
                         state,
                         exchanges=deps.client is not None
                         and offer.has_tool("check_exchange_eligibility"),
+                        reason_words=cfg.router.reason_words,
                     ),
                     actions=executor.actions_enabled,
                     summary=state.get("summary"),

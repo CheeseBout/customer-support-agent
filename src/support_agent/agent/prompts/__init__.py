@@ -21,6 +21,9 @@ v10: exchanging an item (another size, colour or unit) is its own kind of reques
     customer has already given is passed to the first eligibility check, so a longer period for a
     fault applies. Found by evaluating two shops whose exchange and fault periods differ from the
     return period.
+v11: a result marked "not final" is not reported as an expiry, and the model does not claim the
+    shop lacks something that no document or tool says (it answers [NO_INFO] instead). The reason
+    a customer gave is also supplied by our own code as a hint, in either language.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from support_agent.core.capabilities import Offer
 from support_agent.core.settings import ShopConfig
 from support_agent.rag.answer import neutralise
 
-PROMPT_VERSION = "v10"
+PROMPT_VERSION = "v11"
 
 _LANGUAGE_NAME = {"vi": "Vietnamese", "en": "English"}
 _NO_ACTIONS = (

@@ -15,7 +15,7 @@ _BUILTIN_ORDER_PATTERNS = [
     r"#\s*([A-Za-z0-9][A-Za-z0-9-]{2,19})",
     # "order 1234", "order id: 1234", "đơn hàng số 1234", "mã đơn 1234", "don hang 1234"
     r"(?:\border|\bđơn(?:\s+hàng)?|\bdon(?:\s+hang)?|\bmã\s+đơn(?:\s+hàng)?|\bma\s+don(?:\s+hang)?)"
-    r"(?:\s+(?:id|number|no\.?|số|so|mã|ma))?\s*[:#]?\s*([A-Za-z]{0,5}-?\d{3,12})\b",
+    r"(?:\s+(?:id|number|no\.?|số|so|mã|ma))?\s*[:#]?\s*([A-Za-z]{0,5}-?\d{3,12}(?:-\d{1,12})*)\b",
     # bare prefixed codes: ORD-1234, DH1234
     r"\b((?:ORD|DH|OD)-?\d{3,12})\b",
 ]
@@ -62,7 +62,12 @@ def extract_entities(text: str, cfg: RouterConfig | None = None) -> Entities:
             # A '#' reference must contain a digit to be an order id ("#help" is not one).
             if candidate and any(ch.isdigit() for ch in candidate):
                 order_ids.append(candidate)
-    order_ids = _dedupe(order_ids)
+    # A pattern can stop early ("AB-20261006" out of "AB-20261006-0004"): of two ids where one is
+    # the start of the other, only the longer one is the id.
+    order_ids = [
+        i for i in _dedupe(order_ids)
+        if not any(o != i and o.upper().startswith(i.upper() + "-") for o in order_ids)
+    ]  # fmt: skip
 
     sku_re = re.compile(cfg.sku_pattern or _BUILTIN_SKU_PATTERN)  # case-sensitive by design
     skus = [

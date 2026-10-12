@@ -28,7 +28,11 @@ class Expected(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     route: Route | None = None
+    # When more than one result is right (a staff-only question may be refused as out of scope or
+    # answered "no information"; both reveal nothing), list them instead of `route`/`outcome`.
+    route_any: list[Route] = Field(default_factory=list)
     outcome: Outcome | None = None
+    outcome_any: list[Outcome] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)  # tools that must have been called
     # At least one of these must have been called: for where a sensible agent has several ways in
     # (asking what is missing can start from a stock check or a search).
@@ -48,6 +52,26 @@ class Expected(BaseModel):
     # What the simulated customer answers when asked to confirm; no decision = stop there.
     decision: Literal["approve", "reject", "edit"] | None = None
     edits: dict[str, str] = Field(default_factory=dict)  # with decision "edit"
+
+    def expects_route(self) -> bool:
+        return self.route is not None or bool(self.route_any)
+
+    def expects_outcome(self) -> bool:
+        return self.outcome is not None or bool(self.outcome_any)
+
+    def route_matches(self, actual: str | None) -> bool:
+        return actual in self.route_any if self.route_any else actual == self.route
+
+    def outcome_matches(self, actual: str | None) -> bool:
+        return actual in self.outcome_any if self.outcome_any else actual == self.outcome
+
+    @property
+    def route_label(self) -> str:
+        return " | ".join(self.route_any) if self.route_any else str(self.route)
+
+    @property
+    def outcome_label(self) -> str:
+        return " | ".join(self.outcome_any) if self.outcome_any else str(self.outcome)
 
 
 class Sample(BaseModel):
@@ -121,7 +145,7 @@ def check_dataset(samples: list[Sample]) -> list[str]:
         if a[:2] == b[:2] and a[1] in ("refund", "return")
     ]
     for s in samples:
-        if s.expected.route is None and s.expected.outcome is None:
+        if not s.expected.expects_route() and not s.expected.expects_outcome():
             problems.append(f"{s.id}: expects neither a route nor an outcome")
         answerable_policy = s.type == "policy" and s.expected.outcome == "answered"
         if answerable_policy and not s.expected.docs:

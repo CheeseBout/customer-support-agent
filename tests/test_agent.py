@@ -114,7 +114,7 @@ async def test_policy_question_streams_events_in_order_and_cites_a_source(make_a
     )  # markers never shown
     assert result["outcome"] == "answered" and result["tool_calls"] == ["search_policy"]
     assert result["citations"] and result["citations"][0]["source"].endswith(".md")
-    assert result["retrieved"] and result["steps"] == 2 and result["prompt_version"] == "v10"
+    assert result["retrieved"] and result["steps"] == 2 and result["prompt_version"] == "v11"
     assert sum(1 for e in events if e.kind == "citation") == len(result["citations"])
 
 

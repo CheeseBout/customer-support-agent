@@ -121,6 +121,7 @@ async def open_services(settings: Settings) -> AsyncIterator[Services]:
                     embedding_model=settings.embedding_model_name,
                     cfg=settings.app.retrieval,
                     full=full,
+                    knowledge=settings.app.knowledge,
                 )
 
         async def qdrant_check() -> str | None:

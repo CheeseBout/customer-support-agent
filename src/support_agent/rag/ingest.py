@@ -10,7 +10,8 @@ from pathlib import Path
 
 from langchain_core.embeddings import Embeddings
 
-from support_agent.core.settings import RetrievalConfig
+from support_agent.core.settings import KnowledgeConfig, RetrievalConfig
+from support_agent.rag.audience import excluded, is_internal
 from support_agent.rag.chunking import chunk_document
 from support_agent.rag.index import VectorStore
 from support_agent.rag.loaders import discover, file_hash, load_document
@@ -29,13 +30,15 @@ class IngestReport:
     unchanged: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     failed: dict[str, str] = field(default_factory=dict)
+    skipped: dict[str, str] = field(default_factory=dict)  # not for customers: document -> why
     chunks_written: int = 0
 
     def summary(self) -> str:
-        return (
+        text = (
             f"added={len(self.added)} updated={len(self.updated)} unchanged={len(self.unchanged)} "
             f"removed={len(self.removed)} failed={len(self.failed)} chunks={self.chunks_written}"
         )
+        return f"{text} skipped={len(self.skipped)}" if self.skipped else text
 
 
 def make_ingest_key(
@@ -64,9 +67,14 @@ def ingest(
     embedding_model: str,
     cfg: RetrievalConfig,
     full: bool = False,
+    knowledge: KnowledgeConfig | None = None,
 ) -> IngestReport:
-    """Sync `root` into the vector store. `full=True` rebuilds the collection from scratch."""
+    """Sync `root` into the vector store. `full=True` rebuilds the collection from scratch.
+
+    Documents that are not for customers (see `rag.audience`) are skipped, and removed from the
+    index if an earlier run had indexed them."""
     report = IngestReport()
+    know = knowledge or KnowledgeConfig()
     root = root.resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"Knowledge directory not found: {root}")
@@ -78,13 +86,23 @@ def ingest(
     seen: set[str] = set()
     for path in discover(root):
         rel = path.relative_to(root).as_posix()
-        seen.add(rel)
+        if excluded(rel, know.exclude):
+            report.skipped[rel] = "excluded by knowledge.exclude"
+            continue
         try:
+            doc = None
+            if know.skip_internal or know.internal_markers:
+                doc = load_document(path, root)
+                if is_internal(doc.text, know.internal_markers):
+                    report.skipped[rel] = "marked as internal (not for customers)"
+                    log.warning("skipped %s: marked as internal, not for customers", rel)
+                    continue
+            seen.add(rel)
             key = make_ingest_key(file_hash(path), embedding_model, cfg, sparse is not None)
             if indexed.get(rel) == key:
                 report.unchanged.append(rel)
                 continue
-            doc = load_document(path, root)
+            doc = doc or load_document(path, root)
             chunks = chunk_document(doc, cfg)
             if not chunks:
                 raise ValueError("document produced no text chunks")
@@ -101,6 +119,7 @@ def ingest(
             (report.updated if rel in indexed else report.added).append(rel)
             log.info("ingested %s (%d chunks)", rel, len(chunks))
         except Exception as exc:  # one bad file must not abort the whole run
+            seen.add(rel)
             log.exception("failed to ingest %s", rel)
             report.failed[rel] = f"{type(exc).__name__}: {exc}"
 
