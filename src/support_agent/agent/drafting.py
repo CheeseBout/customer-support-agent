@@ -26,6 +26,7 @@ from support_agent.core.results import ErrorCode
 from support_agent.core.settings import BusinessRules
 from support_agent.drafts.service import DraftService
 from support_agent.rules.eligibility import without_active_requests
+from support_agent.rules.exchange import with_pending_exchanges
 from support_agent.rules.warranty import needs_priority_review
 from support_agent.tools.client import DomainToolClient
 from support_agent.tools.langchain_tools import OrderItemArgs, ToolArgs
@@ -35,6 +36,7 @@ from support_agent.tools.langchain_tools import OrderItemArgs, ToolArgs
 EDITABLE: dict[str, frozenset[str]] = {
     "refund": frozenset({"reason_code", "reason_text"}),
     "return": frozenset({"reason_code", "reason_text"}),
+    "exchange": frozenset({"reason_code", "reason_text", "new_sku"}),
     "warranty": frozenset({"issue_description"}),
     "order": frozenset({"shipping_address", "payment_method", "items"}),
     "handoff": frozenset({"reason_text", "contact"}),
@@ -45,9 +47,18 @@ MAX_EDITS = 3
 class ProposeDraftArgs(ToolArgs):
     """What the model may say. No amount, no price, no identity: those are not its to give."""
 
-    draft_type: Literal["refund", "return", "warranty", "order", "handoff"]
-    order_id: str | None = Field(default=None, description="Needed for refund, return, warranty")
-    sku: str | None = Field(default=None, description="The product concerned (needed for warranty)")
+    draft_type: Literal["refund", "return", "exchange", "warranty", "order", "handoff"]
+    order_id: str | None = Field(
+        default=None, description="Needed for refund, return, exchange, warranty"
+    )
+    sku: str | None = Field(
+        default=None, description="The product concerned (needed for exchange and warranty)"
+    )
+    new_sku: str | None = Field(
+        default=None,
+        description="Exchange only: the product they want instead (another size or colour of "
+        "the same product), copied from search_products or check_stock",
+    )
     items: list[OrderItemArgs] | None = Field(
         default=None, description="Order: what to buy. Refund/return: only part of the order"
     )
@@ -108,6 +119,7 @@ class DraftProposer:
         builders = {
             "refund": self._return_or_refund,
             "return": self._return_or_refund,
+            "exchange": self._exchange,
             "warranty": self._warranty,
             "order": self._order,
             "handoff": self._handoff,
@@ -217,6 +229,93 @@ class DraftProposer:
             priority_review=args.draft_type == "refund"
             and needs_priority_review(amount, self.rules.refund),
         )
+
+    # --- exchange ----------------------------------------------------------------------
+    async def _exchange(self, args: ProposeDraftArgs, principal: Principal) -> Proposal:
+        if not args.order_id or not args.sku:
+            raise ProposalError(
+                "INVALID_ARGUMENT", "order_id and sku are required for an exchange."
+            )
+        wish = (args.reason_text or "").strip()
+        if not args.new_sku and len(wish) < 3:
+            raise ProposalError(
+                "INVALID_ARGUMENT",
+                "Say what they want instead: new_sku, or reason_text (for example the size).",
+            )
+        call_args = {
+            "order_id": args.order_id,
+            "sku": args.sku,
+            **({"new_sku": args.new_sku} if args.new_sku else {}),
+            **({"reason": args.reason_code} if args.reason_code else {}),
+        }
+        result = await self.client.call("check_exchange_eligibility", call_args, principal)
+        if not result.ok or not isinstance(result.data, dict):
+            assert result.error is not None
+            raise ProposalError(result.error.code, result.error.message)
+
+        taken = await self.drafts.pending_exchanges(principal.user_id, args.order_id)
+        verdict = with_pending_exchanges(result.data, taken)
+        if not verdict.get("eligible"):
+            raise ProposalError(
+                "NOT_ELIGIBLE",
+                "This order cannot be exchanged.",
+                {
+                    "reasons": verdict.get("reasons", []),
+                    "deadline": verdict.get("deadline"),
+                    "exchanges_used": verdict.get("exchanges_used"),
+                    "exchanges_allowed": verdict.get("exchanges_allowed"),
+                    "checks": verdict.get("checks", []),
+                    **({"order_items": verdict["order_items"]} if "order_items" in verdict else {}),
+                },
+            )
+        eligible = {str(i["sku"]): i for i in verdict["eligible_items"]}
+        item = eligible.get(args.sku)
+        if item is None and len(eligible) == 1:
+            item = next(iter(eligible.values()))
+        if item is None:
+            raise ProposalError("INVALID_ARGUMENT", f"{args.sku!r} is not eligible on this order.")
+
+        replacement = verdict.get("replacement")
+        if args.new_sku and not (isinstance(replacement, dict) and replacement.get("valid")):
+            problems = (replacement or {}).get("problems", [])
+            raise ProposalError(
+                "OUT_OF_STOCK" if problems == ["REPLACEMENT_OUT_OF_STOCK"] else "NOT_ELIGIBLE",
+                "The item they want instead cannot be had.",
+                {"replacement": replacement},
+            )
+        new_name = replacement.get("name") if isinstance(replacement, dict) else None
+        payload = {
+            "order_id": str(verdict["order_id"]),
+            "sku": str(item["sku"]),
+            "new_sku": args.new_sku or None,
+            "reason_code": args.reason_code,
+            "reason_text": wish,
+            "new_item_name": new_name,
+            "eligibility_snapshot": {
+                "eligible": True,
+                "deadline": verdict.get("deadline"),
+                "days_remaining": verdict.get("days_remaining"),
+                "exchanges_used": verdict.get("exchanges_used"),
+                "exchanges_allowed": verdict.get("exchanges_allowed"),
+                "checks": verdict.get("checks", []),
+            },
+        }
+        summary = {
+            "order_id": payload["order_id"],
+            "item": {"sku": payload["sku"], "name": item.get("product_name")},
+            "instead": (
+                {
+                    "sku": args.new_sku,
+                    "name": new_name,
+                    "options": (replacement or {}).get("options"),
+                }
+                if args.new_sku
+                else wish
+            ),
+            "deadline": verdict.get("deadline"),
+            "reason": wish or args.reason_code,
+        }
+        return Proposal("exchange", payload, summary, priority_review=False)
 
     # --- handoff to a person ---------------------------------------------------------
     async def _handoff(self, args: ProposeDraftArgs, principal: Principal) -> Proposal:

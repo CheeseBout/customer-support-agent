@@ -1,13 +1,15 @@
 ---
 name: return-item
-description: Check whether an order can be returned or exchanged and start a return request
+description: Check whether an order can be returned and start a return request
 lang: en
 requires: request:return
 ---
 
-# Returning or exchanging an item
+# Returning an item
 
-1. Get the order id, and the item if the order has several.
+A return sends the item back. Swapping it for another size, colour or unit is an exchange, not a return: it has its own deadline, so never judge an exchange by the return window. If the shop takes exchange requests you have the `exchange-item` skill for it; if not, use `search_policy` for the exchange terms and offer a person (`talk-to-a-person`).
+
+1. Get the order id, and the item if the order has several. If the customer has already said why (faulty, wrong item, damaged...), pass it as `reason` from the first call: some shops allow longer for a fault.
 2. Call `check_return_eligibility`. Its verdict is final: never decide eligibility yourself.
 3. Explain the verdict:
    - Eligible: say how many days are left and the deadline, and the amount that would come back.
@@ -15,4 +17,4 @@ requires: request:return
 4. If it is eligible and the customer wants to go ahead, ask for the reason (defective, wrong item, not as described, damaged in transit, changed mind, other) and a short description. Then call `propose_draft` with `draft_type` "return". For a refund of the money, use the `request-refund` skill instead.
 5. The customer is then asked to confirm. Do not say the request was sent until `propose_draft` reports it was created. After that, give them the request id and say staff will review it (use `search_policy` if they ask how long that takes).
 
-Use `search_policy` for the exact wording before promising anything about shipping costs or exchanges.
+Use `search_policy` for the exact wording before promising anything about shipping costs.

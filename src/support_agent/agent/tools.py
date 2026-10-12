@@ -56,11 +56,22 @@ CANCEL_DRAFT = "cancel_draft"
 LOAD_SKILL = "load_skill"
 ACTION_TOOLS = frozenset({PROPOSE_DRAFT, LIST_MY_DRAFTS, CANCEL_DRAFT})
 ORDER_TOOLS = frozenset(
-    {"get_order", "get_shipment_status", "check_return_eligibility", "check_warranty_eligibility"}
+    {
+        "get_order",
+        "get_shipment_status",
+        "check_return_eligibility",
+        "check_exchange_eligibility",
+        "check_warranty_eligibility",
+    }
 )
 # Results computed by our rules engine, not read from free text.
 AUTHORITATIVE_TOOLS = frozenset(
-    {"check_return_eligibility", "check_warranty_eligibility", PROPOSE_DRAFT}
+    {
+        "check_return_eligibility",
+        "check_exchange_eligibility",
+        "check_warranty_eligibility",
+        PROPOSE_DRAFT,
+    }
 )
 RETRYABLE = ("UPSTREAM_ERROR", "TIMEOUT")
 # A "no" that the shop's own rules or stock produced. It is a real answer to the customer's
@@ -97,15 +108,16 @@ INTERNAL_SPECS: list[tuple[str, str, type[BaseModel]]] = [
     ),
     (
         PROPOSE_DRAFT,
-        "Ask the customer to confirm a refund, return, warranty claim, new order or a request "
-        "to be passed to a person. Give only "
+        "Ask the customer to confirm a refund, return, exchange, warranty claim, new order or a "
+        "request to be passed to a person. Give only "
         "the type, order, item, reason or order details: amounts and eligibility are worked out "
         "by the system. Nothing is submitted until the customer confirms.",
         ProposeDraftArgs,
     ),
     (
         LIST_MY_DRAFTS,
-        "List the customer's own requests (refund, return, warranty, order) and their status.",
+        "List the customer's own requests (refund, return, exchange, warranty, order) and their "
+        "status.",
         ListDraftsArgs,
     ),
     (
@@ -204,6 +216,12 @@ def draft_view(draft: Draft) -> dict[str, Any]:
             "order_id": payload.get("order_id"),
             "items": payload.get("items"),
             "amount": payload.get("refundable_amount"),
+        }
+    elif draft.type == "exchange":
+        view |= {
+            "order_id": payload.get("order_id"),
+            "sku": payload.get("sku"),
+            "new_sku": payload.get("new_sku"),
         }
     elif draft.type == "warranty":
         view |= {"order_id": payload.get("order_id"), "sku": payload.get("sku")}

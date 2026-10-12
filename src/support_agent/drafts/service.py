@@ -190,6 +190,14 @@ class DraftService:
                 rows += [{"status": draft.status, "sku": sku} for sku in sorted(draft.sku_set())]
         return rows
 
+    async def pending_exchanges(self, customer_id: str, order_id: str) -> int:
+        """Exchange drafts for the order that are pending or approved: they use up the order's
+        allowance of exchanges even though the shop's own data does not hold them yet."""
+        found = await self.repo.list(
+            customer_id=customer_id, statuses=ACTIVE_STATUSES, order_id=order_id, limit=50
+        )
+        return sum(1 for draft in found if draft.type == "exchange")
+
     # --- internals -------------------------------------------------------------------
     async def _move(
         self, draft: Draft, target: str, principal: Principal, *, note: str | None = None

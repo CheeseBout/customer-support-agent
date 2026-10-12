@@ -166,6 +166,12 @@ class MongoAdapter(DataAdapter):
         matches = [self._match_stage("return_request", "order_id", _id_variants(str(order_id)))]
         return await self._run("return_request", self._pipeline("return_request", matches))
 
+    async def get_exchange_requests(self, order_id: str) -> list[Row]:
+        if not self.mapping.has("exchange_request"):
+            return []
+        matches = [self._match_stage("exchange_request", "order_id", _id_variants(str(order_id)))]
+        return await self._run("exchange_request", self._pipeline("exchange_request", matches))
+
     # --- catalogue -------------------------------------------------------------------
     async def get_products(self, skus: list[str]) -> dict[str, Row]:
         if not skus or not self.mapping.has("product"):

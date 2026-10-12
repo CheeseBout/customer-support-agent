@@ -144,7 +144,8 @@ async def test_the_server_lists_only_the_tools_the_data_supports(lean_client: Do
 
 
 async def test_the_full_demo_server_lists_every_tool(tool_client: DomainToolClient):
-    assert await tool_client.tool_names() == set(DOMAIN_TOOL_NAMES)
+    # The demo shop sets no exchange rules, so it offers no exchange tool.
+    assert await tool_client.tool_names() == set(DOMAIN_TOOL_NAMES) - {"check_exchange_eligibility"}
 
 
 async def test_a_disabled_tool_is_not_registered(service: BusinessService):
@@ -162,7 +163,10 @@ async def test_a_disabled_tool_is_not_registered(service: BusinessService):
     await asyncio.wait_for(ready.wait(), timeout=10)
     stop.set()
     await task
-    assert seen["names"] == set(DOMAIN_TOOL_NAMES) - {"compare_products"}
+    assert seen["names"] == set(DOMAIN_TOOL_NAMES) - {
+        "compare_products",
+        "check_exchange_eligibility",
+    }
 
 
 # --- what the model is shown ----------------------------------------------------------------------------

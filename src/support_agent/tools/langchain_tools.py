@@ -59,6 +59,22 @@ class ReturnEligibilityArgs(ToolArgs):
     )
 
 
+class ExchangeEligibilityArgs(ToolArgs):
+    order_id: str
+    sku: str | None = Field(default=None, description="The item to exchange, from get_order")
+    new_sku: str | None = Field(
+        default=None,
+        description="The item they want instead (another size or colour of the same product), "
+        "only once they have said; copy its SKU from search_products or check_stock",
+    )
+    reason: ReasonCode | None = Field(
+        default=None,
+        description="Why they want to exchange it, only once they have said "
+        "(defective|wrong_item|not_as_described|damaged_in_transit|changed_mind|other); "
+        "a size that does not fit is changed_mind",
+    )
+
+
 class WarrantyArgs(ToolArgs):
     order_id: str
     sku: str = Field(description="The product (SKU) the warranty claim is about")
@@ -99,6 +115,12 @@ TOOL_SPECS: list[tuple[str, str, type[BaseModel]]] = [
         "check_return_eligibility",
         "Run the shop's return rules for an order (optionally one SKU).",
         ReturnEligibilityArgs,
+    ),
+    (
+        "check_exchange_eligibility",
+        "Run the shop's exchange rules for an order (an exchange has its own deadline; it is not "
+        "a return).",
+        ExchangeEligibilityArgs,
     ),
     (
         "check_warranty_eligibility",

@@ -173,6 +173,9 @@ class DataAdapter(ABC):
     @abstractmethod
     async def get_return_requests(self, order_id: str) -> list[Row]: ...
 
+    @abstractmethod
+    async def get_exchange_requests(self, order_id: str) -> list[Row]: ...
+
     # --- catalogue -------------------------------------------------------------------
     @abstractmethod
     async def get_products(self, skus: list[str]) -> dict[str, Row]: ...

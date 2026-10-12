@@ -114,6 +114,22 @@ class ReturnRule(BaseModel):
     windows: list[ReturnWindow] = Field(default_factory=list)
 
 
+class ExchangeRule(ReturnRule):
+    """When an item can be exchanged. Set it to offer exchanges: leave `exchange` out of
+    `business_rules` and the assistant does not take exchange requests at all.
+
+    It has its own window, separate from the return window: many shops give an exchange longer
+    (a size swap) or shorter than a return. Windows by category or reason work as for returns
+    (`windows`): for example 30 days for a faulty item and 15 for a change of size.
+    """
+
+    window_days: int = 15  # the window when no entry of `windows` matches
+    max_per_order: int | None = 1  # exchanges one order may have; null = no limit
+    # True: an item can only be swapped for another variant (size, colour) of the same product,
+    # or for a new unit of itself when it is faulty. False: any product of the catalogue.
+    same_product_only: bool = True
+
+
 class RefundRule(BaseModel):
     auto_review_max_amount: int | float = 500_000
     currency: str = "VND"  # follows business_rules.currency unless set here
@@ -146,6 +162,7 @@ class BusinessRules(BaseModel):
     # The shop's ISO currency. `refund` and `order` use it unless they set their own.
     currency: str = "VND"
     return_: ReturnRule = Field(default_factory=ReturnRule, alias="return")
+    exchange: ExchangeRule | None = None  # None: the shop does not take exchange requests
     refund: RefundRule = Field(default_factory=RefundRule)
     warranty: WarrantyRule = WarrantyRule()
     inventory: InventoryRule = InventoryRule()

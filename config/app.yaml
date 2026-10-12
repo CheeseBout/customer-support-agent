@@ -15,7 +15,8 @@ shop:
 # switch off more. See DEPLOY.md, "Choose what the assistant does".
 capabilities:
   disabled_tools: []                  # e.g. [compare_products]
-  request_types: [order, refund, return, warranty, handoff]   # what customers may ask for
+  # What customers may ask for. "exchange" only takes effect when business_rules.exchange is set.
+  request_types: [order, refund, return, exchange, warranty, handoff]
 
 llm:
   temperature: 0.2
@@ -107,6 +108,19 @@ business_rules:
     window_basis: delivered_at        # delivered_at | created_at
     allowed_order_statuses: [delivered]
     excluded_categories: []           # categories that can never be returned, e.g. [gift_card]
+  # Exchanging an item (another size, colour or unit) is not a return: give it its own rules to
+  # let customers ask for one. Leave this out and the assistant takes no exchange requests (it
+  # offers to pass the customer to a person). See DEPLOY.md, "Exchanges".
+  # exchange:
+  #   window_days: 15                 # days from delivery
+  #   window_basis: delivered_at      # delivered_at | created_at
+  #   allowed_order_statuses: [delivered]
+  #   excluded_categories: []         # e.g. [underwear]
+  #   max_per_order: 1                # null = no limit
+  #   same_product_only: true         # only another variant (size, colour) of the same product
+  #   windows:                        # other periods by reason or category; the first match wins
+  #     - reasons: [defective, wrong_item, not_as_described, damaged_in_transit]
+  #       days: 30
   refund:
     auto_review_max_amount: 500000    # above this, staff are told to review with priority
   warranty:

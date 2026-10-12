@@ -46,6 +46,8 @@ CANONICAL_FIELDS: dict[str, tuple[set[str], set[str]]] = {
         {"carrier", "tracking_code", "updated_at", "eta"},
     ),
     "return_request": ({"id", "order_id", "status"}, {"created_at", "sku"}),
+    # Exchanges the shop already holds, so the per-order limit counts them.
+    "exchange_request": ({"id", "order_id", "status"}, {"created_at", "sku"}),
 }
 # Everything else is optional: a shop without a stock table or shipment records still works, and
 # the tools that need the missing data answer NOT_SUPPORTED (see BusinessService).

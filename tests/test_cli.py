@@ -302,7 +302,7 @@ def test_eval_with_the_agent_engine_compares_against_the_baseline(
 
     result = invoke("eval", "--limit", "4")
     md = (reports / "agent-partial.md").read_text(encoding="utf-8")
-    assert "Engine | agent (prompt v9)" in md
+    assert "Engine | agent (prompt v10)" in md
     assert "Comparison with `baseline-full`" in md
     payload = json.loads((reports / "agent-partial.json").read_text(encoding="utf-8"))
     assert (

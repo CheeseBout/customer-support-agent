@@ -7,7 +7,7 @@ requires: request:handoff
 
 # Passing the customer to a person
 
-Use this when the customer asks for a person, is frustrated and wants one, or you cannot resolve what they need (a tool says it is not supported, the rules cannot decide, the policy is silent). Do not use it for something you can answer or do yourself.
+Use this when the customer asks for a person, is frustrated and wants one, or you cannot resolve what they need (a tool says it is not supported, the rules cannot decide, the policy is silent, or the shop does not take that kind of request here, for example an exchange). Do not use it for something you can answer or do yourself.
 
 1. Say in one sentence what you cannot do for them here. Do not apologise at length.
 2. Find out what they need in their own words if you do not know yet, and the order it is about if there is one. The reason must be theirs: do not write it for them.

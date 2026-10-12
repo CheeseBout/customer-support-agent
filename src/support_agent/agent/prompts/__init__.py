@@ -16,6 +16,11 @@ v9: the prompt names the shop and gives its contact details, says which tools an
     this shop does not have, and the skills it lists depend on that. Passing a customer to a
     person is a skill. The instructions are otherwise those of v8; the evaluation results in the
     README were measured on v8 and are not repeated for v9.
+v10: exchanging an item (another size, colour or unit) is its own kind of request with its own
+    rules (`check_exchange_eligibility`), no longer judged by the return period; a reason the
+    customer has already given is passed to the first eligibility check, so a longer period for a
+    fault applies. Found by evaluating two shops whose exchange and fault periods differ from the
+    return period.
 """
 
 from __future__ import annotations
@@ -28,12 +33,12 @@ from support_agent.core.capabilities import Offer
 from support_agent.core.settings import ShopConfig
 from support_agent.rag.answer import neutralise
 
-PROMPT_VERSION = "v9"
+PROMPT_VERSION = "v10"
 
 _LANGUAGE_NAME = {"vi": "Vietnamese", "en": "English"}
 _NO_ACTIONS = (
-    "Requests (refund, return, warranty, order) cannot be submitted in this deployment. Only if "
-    "the customer asks you to submit one, explain that and tell them to contact the shop's "
+    "Requests (refund, return, exchange, warranty, order) cannot be submitted in this deployment. "
+    "Only if the customer asks you to submit one, explain that and tell them to contact the shop's "
     "support directly; otherwise do not mention it. You can still check eligibility and explain "
     "the policy."
 )

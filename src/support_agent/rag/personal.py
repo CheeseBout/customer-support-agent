@@ -33,8 +33,11 @@ MAX_PREFETCH_SKUS = 3
 # Matched on accent-folded text. Vietnamese "trả" folds to "tra", which also starts "tra cứu"
 # (look up), so that reading is excluded.
 _RETURN_INTENT = re.compile(
-    r"\b(return|refund|exchange|hoan tien|doi hang|doi tra|doi san pham)\b"
-    r"|\btra\b(?!\s*(cuu|xet|loi|gop))"
+    r"\b(return|refund|hoan tien|doi tra)\b|\btra\b(?!\s*(cuu|xet|loi|gop))"
+)
+# Swapping an item (another size, colour or unit) is not returning it: it has its own deadline.
+_EXCHANGE_INTENT = re.compile(
+    r"\b(exchange|swap|doi hang|doi san pham|doi size|doi mau|doi sang|doi co)\b"
 )
 
 TOOL_PROMPT = """\
@@ -59,6 +62,10 @@ class PersonalResult:
 
 def wants_return_check(question: str) -> bool:
     return bool(_RETURN_INTENT.search(fold(question)))
+
+
+def wants_exchange_check(question: str) -> bool:
+    return bool(_EXCHANGE_INTENT.search(fold(question)))
 
 
 def _label(name: str, args: dict[str, Any]) -> str:

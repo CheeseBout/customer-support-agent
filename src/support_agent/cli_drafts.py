@@ -88,6 +88,10 @@ def _describe(draft: Draft) -> str:
         return (
             f"order {p.get('order_id')} - {p.get('refundable_amount', '')} ({p.get('reason_code')})"
         )
+    if draft.type == "exchange":
+        target = f" -> {p['new_sku']}" if p.get("new_sku") else " (replacement to be chosen)"
+        why = p.get("reason_text") or p.get("reason_code") or ""
+        return f"order {p.get('order_id')} {p.get('sku')}{target} - {why}"
     if draft.type == "warranty":
         return f"order {p.get('order_id')} {p.get('sku')} - {p.get('issue_description')}"
     if draft.type == "handoff":
@@ -115,7 +119,7 @@ def list_drafts(
         "pending"
     ),
     draft_type: Annotated[
-        str | None, typer.Option("--type", help="refund|return|warranty|order|handoff")
+        str | None, typer.Option("--type", help="refund|return|exchange|warranty|order|handoff")
     ] = None,
     url: URL = None,
 ) -> None:

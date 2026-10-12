@@ -53,7 +53,9 @@ def build_server(
         "support-agent-db",
         instructions="Read-only domain tools over the shop database. Identity is implicit.",
     )
-    available = available_tools(service.adapter.mapping.entities, disabled)
+    available = available_tools(
+        service.adapter.mapping.entities, disabled, exchange=service.rules.exchange is not None
+    )
 
     def tool(*, name: str, description: str) -> Callable[[Any], Any]:
         def register(fn: Any) -> Any:
@@ -176,6 +178,27 @@ def build_server(
             "check_return_eligibility",
             {"order_id", "sku", "reason"},
             lambda p: service.check_return_eligibility(p, order_id, sku, reason),
+        )
+
+    @tool(
+        name="check_exchange_eligibility",
+        description="Run the shop's exchange rules for one of the customer's own orders "
+        "(optionally one `sku`, the `new_sku` they want instead, and the customer's `reason` "
+        "once known). Exchanging an item is not a return: it has its own deadline. Returns "
+        "eligible, reason codes, deadline, exchanges used and whether `new_sku` can be had.",
+    )
+    async def check_exchange_eligibility(
+        order_id: str,
+        ctx: Context,
+        sku: str | None = None,
+        new_sku: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return await run(
+            ctx,
+            "check_exchange_eligibility",
+            {"order_id", "sku", "new_sku", "reason"},
+            lambda p: service.check_exchange_eligibility(p, order_id, sku, new_sku, reason),
         )
 
     @tool(

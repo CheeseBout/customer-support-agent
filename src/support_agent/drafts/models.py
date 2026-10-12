@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from support_agent.core.reasons import ReasonCode
 
-DraftType = Literal["order", "refund", "return", "warranty", "handoff"]
+DraftType = Literal["order", "refund", "return", "exchange", "warranty", "handoff"]
 DraftStatus = Literal["pending", "approved", "rejected", "cancelled"]
 
 # SPEC 10.3: pending -> approved | rejected | cancelled, never backwards.
@@ -73,6 +73,18 @@ class HandoffPayload(_Payload):
     contact: str = Field(default="", max_length=200)  # an email or phone the customer gave
 
 
+class ExchangePayload(_Payload):
+    """Swap one item of an order for another size or colour, or for a new unit of itself."""
+
+    order_id: str
+    sku: str
+    new_sku: str | None = None  # None: the customer has not chosen yet, staff will ask
+    reason_code: ReasonCode | None = None
+    reason_text: str = ""
+    new_item_name: str | None = None
+    eligibility_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
 class WarrantyPayload(_Payload):
     order_id: str
     sku: str
@@ -84,6 +96,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "order": OrderPayload,
     "refund": ReturnPayload,
     "return": ReturnPayload,
+    "exchange": ExchangePayload,
     "warranty": WarrantyPayload,
     "handoff": HandoffPayload,
 }
@@ -111,7 +124,7 @@ class Draft(BaseModel):
 
     def sku_set(self) -> set[str]:
         """SKUs the request covers (empty = the whole order)."""
-        if self.type == "warranty":
+        if self.type in ("warranty", "exchange"):
             return {str(self.payload["sku"])} if self.payload.get("sku") else set()
         return {str(i["sku"]) for i in self.payload.get("items", [])}
 

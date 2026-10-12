@@ -1,10 +1,11 @@
 """What this shop's assistant can do, from what its data covers and what it has switched off.
 
 A tool is offered only when the data it needs is mapped (`schema_mapping.yaml`) and the shop has
-not disabled it (`capabilities.disabled_tools`). A kind of request (refund, return, warranty,
-order) is offered only when the shop allows it (`capabilities.request_types`) and, for an order,
-when orders can be priced from a catalogue with stock. The assistant is never shown a tool that
-would only fail.
+not disabled it (`capabilities.disabled_tools`). A kind of request (refund, return, exchange,
+warranty, order) is offered only when the shop allows it (`capabilities.request_types`) and, for
+an order, when orders can be priced from a catalogue with stock, and, for an exchange, when the
+shop has set its exchange rules (`business_rules.exchange`). The assistant is never shown a tool
+that would only fail.
 """
 
 from __future__ import annotations
@@ -13,8 +14,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
-RequestType = Literal["order", "refund", "return", "warranty", "handoff"]
-REQUEST_TYPES: tuple[RequestType, ...] = ("order", "refund", "return", "warranty", "handoff")
+RequestType = Literal["order", "refund", "return", "exchange", "warranty", "handoff"]
+REQUEST_TYPES: tuple[RequestType, ...] = (
+    "order",
+    "refund",
+    "return",
+    "exchange",
+    "warranty",
+    "handoff",
+)
 
 # The mapped entities each domain tool reads, besides the three every shop has
 # (customer, order, order_item).
@@ -22,6 +30,7 @@ TOOL_NEEDS: dict[str, tuple[str, ...]] = {
     "get_order": (),
     "list_orders": (),
     "check_return_eligibility": (),
+    "check_exchange_eligibility": (),
     "check_warranty_eligibility": (),
     "get_shipment_status": ("shipment",),
     "search_products": ("product",),
@@ -58,10 +67,19 @@ class Offer:
         return [t for t in REQUEST_TYPES if t not in self.request_types]
 
 
-def available_tools(entities: Iterable[str], disabled: Iterable[str] = ()) -> frozenset[str]:
-    """The domain tools whose data is mapped and that the shop has not disabled."""
+def available_tools(
+    entities: Iterable[str], disabled: Iterable[str] = (), *, exchange: bool = False
+) -> frozenset[str]:
+    """The domain tools whose data is mapped and that the shop has not disabled.
+
+    `exchange` says whether the shop has set exchange rules (`business_rules.exchange`). Without
+    them there is nothing for `check_exchange_eligibility` to decide with, so the tool is only
+    offered to shops that opted in.
+    """
     mapped = set(entities)
     off = set(disabled)
+    if not exchange:
+        off.add("check_exchange_eligibility")
     unknown = off - set(TOOL_NEEDS)
     if unknown:
         raise ValueError(
@@ -78,9 +96,9 @@ def effective_request_types(
 ) -> tuple[RequestType, ...]:
     """The kinds of request the assistant may prepare. `domain_tools=None` means all exist."""
     wanted = set(configured)
+    needs = {"order": "prepare_order_draft", "exchange": "check_exchange_eligibility"}
     return tuple(
         t
         for t in REQUEST_TYPES
-        if t in wanted
-        and (t != "order" or domain_tools is None or "prepare_order_draft" in domain_tools)
+        if t in wanted and (t not in needs or domain_tools is None or needs[t] in domain_tools)
     )

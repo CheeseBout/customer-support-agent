@@ -60,7 +60,7 @@ from support_agent.memory.artifacts import comparison_markdown, request_markdown
 from support_agent.memory.summary import estimate_tokens, summarize_dialogue
 from support_agent.memory.workspace import Workspace
 from support_agent.rag.entities import extract_entities
-from support_agent.rag.personal import wants_return_check
+from support_agent.rag.personal import wants_exchange_check, wants_return_check
 from support_agent.rag.retriever import Retriever
 from support_agent.rag.router import route_query
 from support_agent.security.guardrails import check_output
@@ -95,7 +95,8 @@ _RESET: dict[str, Any] = {
 }
 
 _ELIGIBILITY_RESULT = re.compile(
-    r'source="tool:check_(?:return|warranty)_eligibility".*?"eligible":\s*(true|false)', re.DOTALL
+    r'source="tool:check_(?:return|exchange|warranty)_eligibility".*?"eligible":\s*(true|false)',
+    re.DOTALL,
 )
 
 
@@ -109,8 +110,8 @@ class AgentDeps:
     retriever: Retriever
     client: DomainToolClient | None
     config: AppConfig
-    # Both are needed for requests (refund, return, warranty, order); without them the agent
-    # still answers questions but says it cannot submit anything.
+    # Both are needed for requests (refund, return, exchange, warranty, order); without them the
+    # agent still answers questions but says it cannot submit anything.
     drafts: DraftService | None = None
     proposer: DraftProposer | None = None
     # The data tools this shop's server offers (None: all). Others are hidden from the model.
@@ -171,8 +172,11 @@ def _model_messages(state: AgentState, limit: int) -> list[BaseMessage]:
     ]
 
 
-def _hints(state: AgentState) -> list[str]:
-    """Facts our own code extracted from the message (regex), safe to state as instructions."""
+def _hints(state: AgentState, *, exchanges: bool = False) -> list[str]:
+    """Facts our own code extracted from the message (regex), safe to state as instructions.
+
+    `exchanges`: this shop takes exchange requests, so a question about swapping an item is
+    pointed at the exchange rules and not at the return rules."""
     hints: list[str] = []
     if state.get("order_ids"):
         hints.append(
@@ -181,9 +185,16 @@ def _hints(state: AgentState) -> list[str]:
         )
     if state.get("skus"):
         hints.append(f"The message mentions SKU(s) {', '.join(state['skus'])}.")
-    if state.get("order_ids") and wants_return_check(state.get("question", "")):
+    question = state.get("question", "")
+    if state.get("order_ids") and wants_return_check(question):
         hints.append(
             "This is about returning or refunding: call check_return_eligibility for each order id."
+        )
+    if state.get("order_ids") and exchanges and wants_exchange_check(question):
+        hints.append(
+            "This is about exchanging an item (another size, colour or unit), which is not a "
+            "return and has its own deadline: call check_exchange_eligibility for each order "
+            "id. Never judge an exchange with check_return_eligibility."
         )
     return hints
 
@@ -377,7 +388,11 @@ def build_graph(deps: AgentDeps, checkpointer: Any) -> CompiledStateGraph:
             SystemMessage(
                 content=system_prompt(
                     state["language"],
-                    _hints(state),
+                    _hints(
+                        state,
+                        exchanges=deps.client is not None
+                        and offer.has_tool("check_exchange_eligibility"),
+                    ),
                     actions=executor.actions_enabled,
                     summary=state.get("summary"),
                     preferences=_preferences(state),

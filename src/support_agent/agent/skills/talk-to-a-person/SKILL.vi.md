@@ -7,7 +7,7 @@ requires: request:handoff
 
 # Chuyển khách cho nhân viên
 
-Dùng khi khách muốn gặp người thật, đang bức xúc và cần người xử lý, hoặc bạn không giải quyết được điều khách cần (công cụ báo không hỗ trợ, quy tắc không thể quyết định, chính sách không đề cập). Không dùng khi bạn có thể tự trả lời hoặc tự làm được.
+Dùng khi khách muốn gặp người thật, đang bức xúc và cần người xử lý, hoặc bạn không giải quyết được điều khách cần (công cụ báo không hỗ trợ, quy tắc không thể quyết định, chính sách không đề cập, hoặc cửa hàng không nhận loại yêu cầu đó ở đây, ví dụ đổi hàng). Không dùng khi bạn có thể tự trả lời hoặc tự làm được.
 
 1. Nói trong một câu điều bạn không làm được cho khách ở đây. Không xin lỗi dài dòng.
 2. Nếu chưa rõ, hỏi khách cần gì bằng lời của chính họ, và đơn hàng liên quan nếu có. Lý do phải là của khách: không tự viết thay họ.

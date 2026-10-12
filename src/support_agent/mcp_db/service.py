@@ -21,7 +21,8 @@ from support_agent.core.reasons import REASON_CODES
 from support_agent.core.results import ToolResult
 from support_agent.core.settings import BusinessRules
 from support_agent.mcp_db.adapters.base import AdapterError, AdapterTimeout, DataAdapter, Row
-from support_agent.rules.eligibility import check_return_eligibility
+from support_agent.rules.eligibility import ACTIVE_REQUEST_STATUSES, check_return_eligibility
+from support_agent.rules.exchange import check_exchange_eligibility, check_replacement
 from support_agent.rules.warranty import check_warranty_eligibility
 
 MAX_ORDER_LIST = 10
@@ -278,6 +279,79 @@ class BusinessService:
                     {"order_id": order["id"], **result.model_dump(mode="json")}, items
                 )
             )
+
+        return await _guard(run)
+
+    async def check_exchange_eligibility(
+        self,
+        principal: Principal,
+        order_id: str,
+        sku: str | None = None,
+        new_sku: str | None = None,
+        reason: str | None = None,
+    ) -> ToolResult:
+        """Can (part of) an order be exchanged, and can the customer have `new_sku` instead?"""
+
+        async def run() -> ToolResult:
+            rule = self.rules.exchange
+            if rule is None:
+                return ToolResult.failure(
+                    "NOT_SUPPORTED",
+                    "This shop does not take exchange requests through the assistant. Use "
+                    "search_policy for its exchange terms and offer to pass the customer to a "
+                    "person.",
+                )
+            order = await self._own_order(principal, order_id)
+            if order is None:
+                return self._order_not_found(order_id)
+            items = await self.adapter.get_order_items(order["id"])
+            wanted = [str(i["sku"]) for i in items]
+            old = match_order_sku(items, sku)
+            new = new_sku.strip() if new_sku and new_sku.strip() else None
+            products = await self.adapter.get_products([*wanted, *([new] if new else [])])
+            returns = [
+                r
+                for r in await self.adapter.get_return_requests(order["id"])
+                if str(r.get("status", "")).lower() in ACTIVE_REQUEST_STATUSES
+            ]
+            valid_reason = reason if reason in REASON_CODES else None
+            result = check_exchange_eligibility(
+                order=order,
+                items=items,
+                products=products,
+                existing_exchanges=await self.adapter.get_exchange_requests(order["id"]),
+                existing_returns=returns,
+                requester_id=principal.user_id,
+                requester_is_staff=principal.role == "staff",
+                rule=rule,
+                now=self._clock(),
+                tz=self.adapter.tz,
+                sku=old,
+                reason=valid_reason,
+            )
+            data = {"order_id": order["id"], **result.model_dump(mode="json")}
+            if new:
+                if old is None:
+                    data["replacement"] = {
+                        "sku": new,
+                        "valid": False,
+                        "problems": ["ITEM_NOT_SPECIFIED"],
+                    }
+                else:
+                    stock = (
+                        await self.adapter.get_inventory([new])
+                        if self.adapter.supports("inventory")
+                        else None
+                    )
+                    data["replacement"] = check_replacement(
+                        sku=old,
+                        new_sku=new,
+                        products=products,
+                        stock=stock,
+                        rule=rule,
+                        reason=valid_reason,
+                    )
+            return ToolResult.success(_with_order_items(data, items))
 
         return await _guard(run)
 

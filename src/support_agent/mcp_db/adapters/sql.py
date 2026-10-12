@@ -188,6 +188,14 @@ class SqlAdapter(DataAdapter):
         )
         return self._norm("return_request", await self._fetch(stmt))
 
+    async def get_exchange_requests(self, order_id: str) -> list[Row]:
+        if not self.mapping.has("exchange_request"):
+            return []
+        stmt = self._select("exchange_request").where(
+            _as_text(self._where("exchange_request", "order_id")) == str(order_id)
+        )
+        return self._norm("exchange_request", await self._fetch(stmt))
+
     # --- catalogue -------------------------------------------------------------------
     async def get_products(self, skus: list[str]) -> dict[str, Row]:
         if not skus or not self.mapping.has("product"):
@@ -236,7 +244,7 @@ class SqlAdapter(DataAdapter):
         try:
             async with self.engine.connect() as conn:
                 issues += await conn.run_sync(self._validate_structure)
-                for name in ("order", "shipment", "return_request"):
+                for name in ("order", "shipment", "return_request", "exchange_request"):
                     if self.mapping.has(name):
                         issues += await self._validate_statuses(conn, name)
         except SQLAlchemyError as exc:
